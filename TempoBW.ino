@@ -10,6 +10,9 @@
 #include <EEPROM.h>
 #include <WiFi.h>
 #include <WebServer.h>
+#include <WebSocketsServer.h>
+#include <ArduinoJson.h>
+#include <ESPmDNS.h>
 #include "BluetoothSerial.h"
 
 
@@ -24,6 +27,12 @@ U8G2_SSD1306_128X32_UNIVISION_F_HW_I2C oled(U8G2_R0, SCL, SDA);
 const char* ssid = "TempoBW";
 const char* password = "";
 WebServer server(80);
+WebSocketsServer webSocket(81);
+float temperature = 25.5;
+float pressure = 1013.25;
+float humidity = 50.0;
+float deviceTemp = 45.0;
+int clientCount = 0;
 
 
 void ShowIntro(String text) 
@@ -72,9 +81,9 @@ void ShowData(String title, String text)
 }
 
 
-void WiFiEvent(WiFiEvent_t event) {
-  Serial.printf("[WiFi-event] event: %d\n", event);
-
+void WiFiEvent(WiFiEvent_t event, WiFiEventInfo_t info) 
+{
+  //Serial.printf("[WiFi-event] event: %d\n", event);
   switch (event) {
     case ARDUINO_EVENT_WIFI_READY:               Serial.println("WiFi interface ready"); break;
     case ARDUINO_EVENT_WIFI_SCAN_DONE:           Serial.println("Completed scan for access points"); break;
@@ -84,9 +93,11 @@ void WiFiEvent(WiFiEvent_t event) {
     case ARDUINO_EVENT_WIFI_STA_DISCONNECTED:    Serial.println("Disconnected from WiFi access point"); break;
     case ARDUINO_EVENT_WIFI_STA_AUTHMODE_CHANGE: Serial.println("Authentication mode of access point has changed"); break;
     case ARDUINO_EVENT_WIFI_STA_GOT_IP:
+    {
       Serial.print("Obtained IP address: ");
       Serial.println(WiFi.localIP());
       break;
+    }
     case ARDUINO_EVENT_WIFI_STA_LOST_IP:        Serial.println("Lost IP address and IP address is reset to 0"); break;
     case ARDUINO_EVENT_WPS_ER_SUCCESS:          Serial.println("WiFi Protected Setup (WPS): succeeded in enrollee mode"); break;
     case ARDUINO_EVENT_WPS_ER_FAILED:           Serial.println("WiFi Protected Setup (WPS): failed in enrollee mode"); break;
@@ -94,9 +105,31 @@ void WiFiEvent(WiFiEvent_t event) {
     case ARDUINO_EVENT_WPS_ER_PIN:              Serial.println("WiFi Protected Setup (WPS): pin code in enrollee mode"); break;
     case ARDUINO_EVENT_WIFI_AP_START:           Serial.println("WiFi access point started"); break;
     case ARDUINO_EVENT_WIFI_AP_STOP:            Serial.println("WiFi access point  stopped"); break;
-    case ARDUINO_EVENT_WIFI_AP_STACONNECTED:    Serial.println("Client connected"); break;
-    case ARDUINO_EVENT_WIFI_AP_STADISCONNECTED: Serial.println("Client disconnected"); break;
-    case ARDUINO_EVENT_WIFI_AP_STAIPASSIGNED:   Serial.println("Assigned IP address to client"); break;
+    case ARDUINO_EVENT_WIFI_AP_STACONNECTED:
+    {
+      Serial.print("Client connected: ");
+      char macStr[18];
+      snprintf(macStr, sizeof(macStr), "%02X:%02X:%02X:%02X:%02X:%02X",
+               info.wifi_ap_staconnected.mac[0], info.wifi_ap_staconnected.mac[1],
+               info.wifi_ap_staconnected.mac[2], info.wifi_ap_staconnected.mac[3],
+               info.wifi_ap_staconnected.mac[4], info.wifi_ap_staconnected.mac[5]);
+      //Serial.print("MAC address client: Klient připojen s MAC adresou: ");
+      Serial.println(macStr);
+      break;
+    }
+    case ARDUINO_EVENT_WIFI_AP_STADISCONNECTED:
+    {
+      Serial.println("Client disconnected"); 
+      break;
+    }
+    case ARDUINO_EVENT_WIFI_AP_STAIPASSIGNED:
+    {
+      //Serial.println("Assigned IP address to client"); 
+      IPAddress clientIP = IPAddress(info.wifi_ap_staipassigned.ip.addr);
+      Serial.print("Client IP: ");
+      Serial.println(clientIP);      
+      break;
+    }
     case ARDUINO_EVENT_WIFI_AP_PROBEREQRECVED:  Serial.println("Received probe request"); break;
     case ARDUINO_EVENT_WIFI_AP_GOT_IP6:         Serial.println("AP IPv6 is preferred"); break;
     case ARDUINO_EVENT_WIFI_STA_GOT_IP6:        Serial.println("STA IPv6 is preferred"); break;
@@ -107,6 +140,113 @@ void WiFiEvent(WiFiEvent_t event) {
     case ARDUINO_EVENT_ETH_DISCONNECTED:        Serial.println("Ethernet disconnected"); break;
     case ARDUINO_EVENT_ETH_GOT_IP:              Serial.println("Obtained IP address"); break;
     default:                                    break;
+  }
+}
+
+
+String history = R"rawjson(
+[
+  {"time": "12:00", "temperature": 25.5, "pressure": 1013.2, "humidity": 50.0},
+  {"time": "12:01", "temperature": 25.7, "pressure": 1013.3, "humidity": 49.8},
+  {"time": "12:02", "temperature": 25.6, "pressure": 1013.1, "humidity": 50.1}
+]
+)rawjson";
+
+
+void handleRoot() 
+{
+  String html = R"rawliteral(
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <title>ESP32 Teploměr</title>
+      <script>
+        let socket;
+        function initWebSocket() {
+          socket = new WebSocket('ws://' + location.host + ':81');
+          socket.onmessage = function(event) {
+            const data = JSON.parse(event.data);
+            document.getElementById('temp').innerText = data.temperature + " °C";
+            document.getElementById('press').innerText = data.pressure + " hPa";
+            document.getElementById('hum').innerText = data.humidity + " %";
+            document.getElementById('devTemp').innerText = data.deviceTemp + " °C";
+            document.getElementById('clients').innerText = data.clientCount;
+          };
+        }
+        window.onload = initWebSocket;
+      </script>
+    </head>
+    <body>
+      <nav>
+        <a href="/">Domů</a>
+        <a href="/history">Historie</a>
+      </nav>
+      <h1>Aktuální hodnoty</h1>
+      <p>Teplota: <span id="temp">Načítám...</span></p>
+      <p>Tlak: <span id="press">Načítám...</span></p>
+      <p>Vlhkost: <span id="hum">Načítám...</span></p>
+      <p>Teplota zařízení: <span id="devTemp">Načítám...</span></p>
+      <p>Počet klientů: <span id="clients">Načítám...</span></p>
+    </body>
+    </html>
+  )rawliteral";
+
+  server.send(200, "text/html", html);
+}
+
+void handleHistory() 
+{
+  String html = R"rawliteral(
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <title>ESP32 Historie</title>
+      <script>
+        function fetchHistory() {
+          fetch('/history-data')
+            .then(response => response.json())
+            .then(data => {
+              const table = document.getElementById('history-table');
+              table.innerHTML = '<tr><th>Čas</th><th>Teplota</th><th>Tlak</th><th>Vlhkost</th></tr>';
+              data.forEach(row => {
+                table.innerHTML += `<tr><td>${row.time}</td><td>${row.temperature} °C</td><td>${row.pressure} hPa</td><td>${row.humidity} %</td></tr>`;
+              });
+            });
+        }
+        window.onload = fetchHistory;
+      </script>
+    </head>
+    <body>
+      <nav>
+        <a href="/">Domů</a>
+        <a href="/history">Historie</a>
+      </nav>
+      <h1>Historie hodnot</h1>
+      <table id="history-table"></table>
+    </body>
+    </html>
+  )rawliteral";
+
+  server.send(200, "text/html", html);
+}
+
+void handleHistoryData() 
+{
+  server.send(200, "application/json", history);
+}
+
+
+void webSocketEvent(uint8_t client_num, WStype_t type, uint8_t *payload, size_t length) 
+{
+  if (type == WStype_CONNECTED) 
+  {
+    clientCount++;
+    Serial.printf("Client %u connected\n", client_num);
+  } 
+  else if (type == WStype_DISCONNECTED) 
+  {
+    clientCount--;
+    Serial.printf("Client %u disconnected\n", client_num);
   }
 }
 
@@ -148,6 +288,10 @@ void setup()
   WiFi.disconnect(true);
   Serial.print("Starting webserver...");
   WiFi.softAP(ssid, password);
+  if (!MDNS.begin(ssid)) {
+    Serial.println("Error setting up MDNS responder!");
+    return;
+  }  
   int startWebServer = 0;
   while (!WiFi.status() == WL_CONNECTED) 
   {
@@ -165,16 +309,36 @@ void setup()
   Serial.println("OK!");
   Serial.print("IP address: ");
   Serial.println(WiFi.softAPIP());
-  //WiFi.onEvent(onConnect, WiFiEvent_t::ARDUINO_EVENT_WIFI_AP_STACONNECTED);
-  //WiFi.onEvent(onDisconnect, WiFiEvent_t::ARDUINO_EVENT_WIFI_AP_STADISCONNECTED);
   WiFi.onEvent(WiFiEvent);
-
+  server.on("/", handleRoot);
+  server.on("/history", handleHistory);
+  server.on("/history-data", handleHistoryData);  
   server.begin();
+  Serial.println("WIFI server begin");
+  webSocket.begin();
+  webSocket.onEvent(webSocketEvent);  
+  Serial.println("WIFI websocket begin");
+
 }
 
 
 void loop() 
 {
+  server.handleClient();
+  webSocket.loop();
+
+  DynamicJsonDocument json(256);
+  json["temperature"] = temperature;
+  json["pressure"] = pressure;
+  json["humidity"] = humidity;
+  json["deviceTemp"] = deviceTemp;
+  json["clientCount"] = clientCount;
+
+  String jsonString;
+  serializeJson(json, jsonString);
+
+  webSocket.broadcastTXT(jsonString);
+
   /*
   if (SerialBT.available()) {
     char incomingChar = SerialBT.read();
@@ -186,7 +350,6 @@ void loop()
     SerialBT.write(Serial.read());
   }
   */
-  server.handleClient();
 }
 
 
