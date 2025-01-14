@@ -12,9 +12,7 @@
 #include <WebServer.h>
 #include <WebSocketsServer.h>
 #include <ArduinoJson.h>
-#include <ESPmDNS.h>
 #include "BluetoothSerial.h"
-
 
 #define ONE_WIRE_BUS 19
 #define SDA 21
@@ -33,7 +31,6 @@ float pressure = 1013.25;
 float humidity = 50.0;
 float deviceTemp = 45.0;
 int clientCount = 0;
-
 
 void ShowIntro(String text) 
 {
@@ -146,9 +143,9 @@ void WiFiEvent(WiFiEvent_t event, WiFiEventInfo_t info)
 
 String history = R"rawjson(
 [
-  {"time": "12:00", "temperature": 25.5, "pressure": 1013.2, "humidity": 50.0},
-  {"time": "12:01", "temperature": 25.7, "pressure": 1013.3, "humidity": 49.8},
-  {"time": "12:02", "temperature": 25.6, "pressure": 1013.1, "humidity": 50.1}
+  {"apos": 32, "time": "12:00", "date": "25/12/2025", "temperature": 25.5, "pressure": 1013.2, "humidity": 50.0, "devtemperature": 32.3},
+  {"apos": 32, "time": "12:00", "date": "25/12/2025", "temperature": 25.5, "pressure": 1013.2, "humidity": 50.0, "devtemperature": 32.3},
+  {"apos": 32, "time": "12:00", "date": "25/12/2025", "temperature": 25.5, "pressure": 1013.2, "humidity": 50.0, "devtemperature": 32.3}
 ]
 )rawjson";
 
@@ -156,77 +153,343 @@ String history = R"rawjson(
 void handleRoot() 
 {
   String html = R"rawliteral(
-    <!DOCTYPE html>
-    <html>
-    <head>
-      <title>ESP32 Teploměr</title>
-      <script>
-        let socket;
-        function initWebSocket() {
-          socket = new WebSocket('ws://' + location.host + ':81');
-          socket.onmessage = function(event) {
-            const data = JSON.parse(event.data);
-            document.getElementById('temp').innerText = data.temperature + " °C";
-            document.getElementById('press').innerText = data.pressure + " hPa";
-            document.getElementById('hum').innerText = data.humidity + " %";
-            document.getElementById('devTemp').innerText = data.deviceTemp + " °C";
-            document.getElementById('clients').innerText = data.clientCount;
-          };
-        }
-        window.onload = initWebSocket;
-      </script>
-    </head>
-    <body>
-      <nav>
-        <a href="/">Domů</a>
-        <a href="/history">Historie</a>
-      </nav>
-      <h1>Aktuální hodnoty</h1>
-      <p>Teplota: <span id="temp">Načítám...</span></p>
-      <p>Tlak: <span id="press">Načítám...</span></p>
-      <p>Vlhkost: <span id="hum">Načítám...</span></p>
-      <p>Teplota zařízení: <span id="devTemp">Načítám...</span></p>
-      <p>Počet klientů: <span id="clients">Načítám...</span></p>
-    </body>
-    </html>
+<!DOCTYPE html>
+<html lang="cs">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TempoBW</title>
+    <script>
+      let socket;
+      function initWebSocket() 
+      {
+        socket = new WebSocket('ws://' + location.host + ':81');
+        socket.onmessage = function(event) 
+        {
+          const data = JSON.parse(event.data);
+          document.getElementById('temp').innerText = data.temperature + " °C";
+          document.getElementById('press').innerText = data.pressure + " hPa";
+          document.getElementById('hum').innerText = data.humidity + " %";
+          document.getElementById('devTime').innerText = data.deviceTime;
+          document.getElementById('devDate').innerText = data.deviceDate;
+          document.getElementById('devTemp').innerText = data.deviceTemp + " °C";
+          document.getElementById('clients').innerText = data.clientCount;
+        };
+      }
+      window.onload = initWebSocket;
+    </script>
+    <style>
+    .center {
+      margin: 2px auto;
+      width: 80%;
+      border: 0px solid black;
+      text-align: center;
+    }
+    .menu {
+      display: flex;
+      justify-content: center;
+      gap: 15px;
+    }
+    .menu button {
+      padding: 15px 30px;
+      font-size: 16px;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+      transition: all 0.3s ease;
+    }
+    .menu button#home {
+      background-color: #4CAF50;
+      color: white;
+    }
+    .menu button#history {
+      background-color: #2196F3;
+      color: white;
+    }
+    .menu button#settings {
+      background-color: #f44336;
+      color: white;
+    }
+    .menu button:hover {
+      opacity: 0.8;
+    }      
+    h1 {
+      color: #4CAF50;
+      font-size: 36px;
+      font-family: 'Lucida Console', serif;
+      text-align: center;
+      text-transform: uppercase;
+    }      
+    h2 {
+      color: #07efcc;
+      font-size: 26px;
+      font-family: 'Lucida Console', serif;
+      text-align: center;
+      text-transform: uppercase;
+    }      
+    h5 {
+      color: #f44336;
+      font-size: 12px;
+      font-family: 'Lucida Console', serif;
+      text-align: center;
+      text-transform: uppercase;
+    }      
+  </style>
+  </head>
+  <body style="background-color: #212f3c;">
+    <div class="menu">
+      <button id="home" onclick="location.href='/'">Domů</button>
+      <button id="history" onclick="location.href='/history'">Historie</button>
+      <button id="settings" onclick="location.href='/settings'">Nastavení</button>
+    </div>
+    <div class="center">
+      <h1>TempoBW</h1>
+    </div>
+    <div class="center">
+      <h2>Venkovní BT+WIFI teploměr</h2>
+    </div>
+    <table id="maintable" align="center" width="70%" cellspacing="15" cellpadding="10"
+      border="1">
+      <tbody>
+        <tr>
+          <td style="font-size: 22px; color: #5d02d8; font-family: Lucida Console;"
+            align="center" width="50%" valign="center" bgcolor="6f767c">Aktualni
+            teplota</td>
+          <td style="font-size: 22px; color: #ffffff; font-family: Lucida Console;"
+            align="center" width="50%" valign="center" bgcolor="000000"> <span
+              id="temp">Načítám...</span> </td>
+        </tr>
+        <tr>
+          <td style="font-size: 22px; color: #5d02d8; font-family: Lucida Console;"
+            align="center" width="50%" valign="center" bgcolor="6f767c">Tlak
+            vzduchu</td>
+          <td style="font-size: 22px; color: #ffffff; font-family: Lucida Console;"
+            align="center" width="50%" valign="center" bgcolor="000000">1015.7
+            hPa</td>
+        </tr>
+        <tr>
+          <td style="font-size: 22px; color: #5d02d8; font-family: Lucida Console;"
+            align="center" width="50%" valign="center" bgcolor="6f767c">Vlhkost</td>
+          <td style="font-size: 22px; color: #ffffff; font-family: Lucida Console;"
+            align="center" width="50%" valign="center" bgcolor="000000">72.5 %</td>
+        </tr>
+        <tr>
+          <td style="font-size: 22px; color: #5d02d8; font-family: Lucida Console;"
+            align="center" width="50%" valign="center" bgcolor="6f767c">Cas
+            zarizeni</td>
+          <td style="font-size: 22px; color: #ffffff; font-family: Lucida Console;"
+            align="center" width="50%" valign="center" bgcolor="000000">21:50</td>
+        </tr>
+        <tr>
+          <td style="font-size: 22px; color: #5d02d8; font-family: Lucida Console;"
+            align="center" width="50%" valign="center" bgcolor="6f767c">Datum
+            zarizeni</td>
+          <td style="font-size: 22px; color: #ffffff; font-family: Lucida Console;"
+            align="center" width="50%" valign="center" bgcolor="000000">21/12/2025</td>
+        </tr>
+        <tr>
+          <td style="font-size: 22px; color: #5d02d8; font-family: Lucida Console;"
+            align="center" width="50%" valign="center" bgcolor="6f767c">Teplota
+            zarizeni</td>
+          <td style="font-size: 22px; color: #ffffff; font-family: Lucida Console;"
+            align="center" width="50%" valign="center" bgcolor="000000">+23.8 C</td>
+        </tr>
+        <tr>
+          <td style="font-size: 22px; color: #5d02d8; font-family: Lucida Console;"
+            align="center" width="50%" valign="center" bgcolor="6f767c">Pocet
+            klientu</td>
+          <td style="font-size: 22px; color: #ffffff; font-family: Lucida Console;"
+            align="center" width="50%" valign="center" bgcolor="000000">1</td>
+        </tr>
+      </tbody>
+    </table>
+    <div class="center"> <br>
+      <h5>PROGMaxi software 2025</h5>
+      <br>
+      <br>
+    </div>
+  </body>
+</html>
   )rawliteral";
-
   server.send(200, "text/html", html);
 }
 
 void handleHistory() 
 {
   String html = R"rawliteral(
-    <!DOCTYPE html>
-    <html>
-    <head>
-      <title>ESP32 Historie</title>
-      <script>
-        function fetchHistory() {
-          fetch('/history-data')
-            .then(response => response.json())
-            .then(data => {
-              const table = document.getElementById('history-table');
-              table.innerHTML = '<tr><th>Čas</th><th>Teplota</th><th>Tlak</th><th>Vlhkost</th></tr>';
-              data.forEach(row => {
-                table.innerHTML += `<tr><td>${row.time}</td><td>${row.temperature} °C</td><td>${row.pressure} hPa</td><td>${row.humidity} %</td></tr>`;
-              });
+<!DOCTYPE html>
+<html lang="cs">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TempoBW - Historie</title>
+    <script>
+      const history = [
+        {"apos": 32, "time": "12:00", "date": "25/12/2025", "temperature": 25.5, "pressure": 1013.2, "humidity": 50.0, "devtemperature": 32.3},
+        {"apos": 32, "time": "12:00", "date": "25/12/2025", "temperature": 25.5, "pressure": 1013.2, "humidity": 50.0, "devtemperature": 32.3},
+        {"apos": 32, "time": "12:00", "date": "25/12/2025", "temperature": 25.5, "pressure": 1013.2, "humidity": 50.0, "devtemperature": 32.3}
+      ];      
+      function fetchHistory() {
+        fetch('/history-data')
+          .then(response => response.json())
+          .then(data => {
+            const table = document.getElementById('history-table');
+            const aposLabel = document.querySelector('.apos-label');
+            const aposValue = document.querySelector('.apos-value');
+            if (data.length > 0) {
+              aposValue.innerText = data[0].apos;
+            }
+            table.innerHTML = '<tr><th>###</th><th>ČAS</th><th>DATUM</th><th>TEPLOTA</th><th>TLAK</th><th>VLHKOST</th><th>TEPLOTA ZAŘÍZENÍ</th></tr>';
+            data.forEach((row, index) => {
+              table.innerHTML += `<tr>
+                <td>${index + 1}</td>
+                <td>${row.time}</td>
+                <td>${row.date}</td>
+                <td>${row.temperature} °C</td>
+                <td>${row.pressure} hPa</td>
+                <td>${row.humidity} %</td>
+                <td>${row.devtemperature} °C</td>
+              </tr>`;
             });
+          });
+      }
+      function renderHistory() {
+        const table = document.getElementById('history-table');
+        const aposLabel = document.querySelector('.apos-label');
+        const aposValue = document.querySelector('.apos-value');
+        if (history.length > 0) {
+          aposValue.innerText = history[0].apos;
         }
-        window.onload = fetchHistory;
-      </script>
-    </head>
-    <body>
-      <nav>
-        <a href="/">Domů</a>
-        <a href="/history">Historie</a>
-      </nav>
-      <h1>Historie hodnot</h1>
-      <table id="history-table"></table>
-    </body>
-    </html>
+        table.innerHTML = '<tr><th>###</th><th>ČAS</th><th>DATUM</th><th>TEPLOTA [°C]</th><th>TLAK [hPa]</th><th>VLHKOST [%]</th><th>T.ZAŘÍZENÍ [°C]</th></tr>';
+        history.forEach((row, index) => {
+          table.innerHTML += `<tr>
+            <td>${index + 1}</td>
+            <td>${row.time}</td>
+            <td>${row.date}</td>
+            <td>${row.temperature} °C</td>
+            <td>${row.pressure} hPa</td>
+            <td>${row.humidity} %</td>
+            <td>${row.devtemperature} °C</td>
+          </tr>`;
+        });
+      }
+      window.onload = fetchHistory;
+    </script>
+    <style>
+    .center {
+      margin: 2px auto;
+      width: 80%;
+      border: 0px solid black;
+      text-align: center;
+    }
+    .menu {
+      display: flex;
+      justify-content: center;
+      gap: 15px;
+    }
+    .menu button {
+      padding: 15px 30px;
+      font-size: 16px;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+      transition: all 0.3s ease;
+    }
+    .menu button#home {
+      background-color: #4CAF50;
+      color: white;
+    }
+    .menu button#history {
+      background-color: #2196F3;
+      color: white;
+    }
+    .menu button#settings {
+      background-color: #f44336;
+      color: white;
+    }
+    .menu button:hover {
+      opacity: 0.8;
+    }      
+    h1 {
+      color: #4CAF50;
+      font-size: 36px;
+      font-family: 'Lucida Console', serif;
+      text-align: center;
+      text-transform: uppercase;
+    }      
+    h2 {
+      color: #07efcc;
+      font-size: 26px;
+      font-family: 'Lucida Console', serif;
+      text-align: center;
+      text-transform: uppercase;
+    }      
+    h5 {
+      color: #f44336;
+      font-size: 12px;
+      font-family: 'Lucida Console', serif;
+      text-align: center;
+      text-transform: uppercase;
+    }
+    table {
+      width: 70%;
+      border-collapse: collapse;
+      margin: 20px auto;
+    }
+    th, td {
+      border: 1px solid #ddd;
+      padding: 8px;
+      text-align: center;
+      width=16.6%;
+    }
+    td {
+      background-color: #000000;
+      color: #FFFFFF;
+      font-family: 'Lucida Console', serif;
+    }
+    th {
+      background-color: #4CAF50;
+      color: white;
+    }
+    .apos-label {
+      font-size: 18px;
+      color: #4CAF50;
+      font-weight: bold;
+      font-family: 'Lucida Console', serif;
+    }
+    .apos-value {
+      font-size: 24px;
+      color: #FFFFFF;
+      background-color: #000000;
+      font-weight: bold;
+      font-family: 'Lucida Console', serif;
+  		width: auto;
+  		padding: 5px 15px;
+  		border-radius: 5px;
+    }    
+  </style>
+  </head>
+  <body style="background-color: #212f3c;">
+    <div class="menu"> <button id="home" onclick="location.href='/'">Domů</button>
+      <button id="history" onclick="location.href='/history'">Historie</button>
+      <button id="settings" onclick="location.href='/settings'">Nastavení</button>
+    </div>
+    <div class="center">
+      <br>
+      <br>
+      <p><span class="apos-label">AKTUÁLNÍ POZICE:</span> <span class="apos-value">0</span></p>
+      <br>
+    </div>
+    <table id="history-table">
+    </table>
+    <div class="center"> <br>
+      <h5>PROGMaxi software 2025</h5>
+      <br>
+      <br>
+    </div>
+  </body>
+</html>
   )rawliteral";
-
   server.send(200, "text/html", html);
 }
 
@@ -235,6 +498,86 @@ void handleHistoryData()
   server.send(200, "application/json", history);
 }
 
+void handleSettings() 
+{
+  String html = R"rawliteral(
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <title>ESP32 Nastavení</title>
+      <style>
+        body {
+          font-family: Arial, sans-serif;
+        }
+        label {
+          display: block;
+          margin: 10px 0;
+        }
+        input {
+          padding: 5px;
+          width: 100%;
+        }
+        button {
+          padding: 10px 20px;
+          margin-top: 10px;
+          background-color: #4CAF50;
+          color: white;
+          border: none;
+          cursor: pointer;
+        }
+      </style>
+    </head>
+    <body>
+      <h1>Nastavení zařízení</h1>
+      <form action="/apply-settings" method="POST">
+        <label for="time">Nastavit čas (HH:MM):</label>
+        <input type="text" id="time" name="time" placeholder="12:34">
+        
+        <label for="date">Nastavit datum (DD/MM/YYYY):</label>
+        <input type="text" id="date" name="date" placeholder="25/12/2025">
+        
+        <button type="submit">Uložit nastavení</button>
+      </form>
+      
+      <h2>Možnosti:</h2>
+      <form action="/reset-history" method="POST">
+        <button type="submit">Smazat historii</button>
+      </form>
+      
+      <form action="/restart" method="POST">
+        <button type="submit">Restartovat zařízení</button>
+      </form>
+    </body>
+    </html>
+  )rawliteral";
+  server.send(200, "text/html", html);
+}
+
+void handleApplySettings() 
+{
+  String time = server.arg("time");
+  String date = server.arg("date");
+  // Tady budeš nastavovat čas a datum na zařízení
+  Serial.print("Nastavit čas: ");
+  Serial.println(time);
+  Serial.print("Nastavit datum: ");
+  Serial.println(date);
+  // Předpokládám, že máš funkce pro nastavení času a data na zařízení
+  //setDeviceTime(time);
+  //setDeviceDate(date);
+  server.send(200, "text/html", "<h1>Nastavení uloženo</h1><a href='/settings'>Zpět do nastavení</a>");
+}
+
+void handleResetHistory() {
+  // Funkce pro smazání historie
+  //resetDeviceHistory();
+  server.send(200, "text/html", "<h1>Historie byla smazána</h1><a href='/settings'>Zpět do nastavení</a>");
+}
+
+void handleRestart() {
+  // Funkce pro restart zařízení
+  ESP.restart();
+}
 
 void webSocketEvent(uint8_t client_num, WStype_t type, uint8_t *payload, size_t length) 
 {
@@ -288,10 +631,6 @@ void setup()
   WiFi.disconnect(true);
   Serial.print("Starting webserver...");
   WiFi.softAP(ssid, password);
-  if (!MDNS.begin(ssid)) {
-    Serial.println("Error setting up MDNS responder!");
-    return;
-  }  
   int startWebServer = 0;
   while (!WiFi.status() == WL_CONNECTED) 
   {
@@ -313,12 +652,15 @@ void setup()
   server.on("/", handleRoot);
   server.on("/history", handleHistory);
   server.on("/history-data", handleHistoryData);  
+  server.on("/settings", handleSettings);
+  server.on("/apply-settings", HTTP_POST, handleApplySettings);
+  server.on("/reset-history", HTTP_POST, handleResetHistory);
+  server.on("/restart", HTTP_POST, handleRestart);  
   server.begin();
   Serial.println("WIFI server begin");
   webSocket.begin();
   webSocket.onEvent(webSocketEvent);  
-  Serial.println("WIFI websocket begin");
-
+  Serial.println("WIFI websocket started");
 }
 
 
