@@ -12,10 +12,8 @@
 #include <WebServer.h>
 #include <WebSocketsServer.h>
 #include <ArduinoJson.h>
-//#include <Adafruit_Sensor.h>
 #include <Adafruit_BME280.h>
 #include <Adafruit_SHT4x.h>
-//#include <Adafruit_GFX.h>
 #include "BluetoothSerial.h"
 
 #define ONE_WIRE_BUS 19
@@ -23,7 +21,6 @@
 #define SCL 22
 #define WIDTH 128
 #define HEIGHT 32
-#define ALTITUDE 230
 
 BluetoothSerial SerialBT;
 U8G2_SSD1306_128X32_UNIVISION_F_HW_I2C oled(U8G2_R0, SCL, SDA);
@@ -35,7 +32,14 @@ float temperature = 0.0f;
 float pressure = 0.0f;
 float humidity = 0.0f;
 float deviceTemp = 0.0f;
+float altitude = 250.0f;
 int clientCount = 0;
+unsigned long previousMillis = 0;
+unsigned long interval = 5000;
+unsigned int deltaDraw = 0;
+
+
+Scheduler runner;
 
 struct MMTemp 
 {
@@ -47,6 +51,33 @@ struct MMTemp
   int month;
   int year;
 };
+
+typedef struct EEData
+{
+  float temperature;
+  float processorTemperature;
+  float humidity;
+  float pressure;
+  uint8_t hour;
+  uint8_t minute;
+  uint8_t day;
+  uint8_t month;
+  uint16_t year;  
+};
+
+typedef struct EESet
+{
+  float altitude;
+  float fset2;
+  float fset3;
+  float fset4;
+  uint8_t position;
+  uint8_t ui8set1;
+  uint8_t ui8set2;
+  uint8_t ui8set3;
+  uint16_t crc;  
+};
+
 
 MMTemp minTemp = {55.5f,0,0,0,1,1,2025};
 MMTemp maxTemp = {-55.5f,0,0,0,1,1,2025};
@@ -86,14 +117,14 @@ void ShowData(String title, String text)
 {
   oled.setDrawColor(0);
   oled.drawBox(0, 0, WIDTH, HEIGHT);
-  oled.sendBuffer();
+  //oled.sendBuffer();
   oled.setDrawColor(1);
   oled.setFont(u8g2_font_lucasfont_alternate_tf);
   int strTitleWidth = oled.getStrWidth(title.c_str());
   int strTitleHeight = oled.getMaxCharHeight();
   int titleY = strTitleHeight;
   oled.drawStr((WIDTH - strTitleWidth) / 2, titleY, title.c_str());
-  oled.sendBuffer();
+  //oled.sendBuffer();
   oled.setFont(u8g2_font_helvR14_tf);
   int strTextWidth = oled.getStrWidth(text.c_str());
   int strTextHeight = oled.getMaxCharHeight();
@@ -174,6 +205,185 @@ float calculateSeaLevelPressure(float pressure, float altitude)
   float seaLevelPressure = pressure * pow(1 + (altitude / 44330.0), 5.255);
   return seaLevelPressure / 100.0;
 }
+
+void clearHistory()
+{
+  EEData edata = {0};
+  for(int i = 0; i < 240; i++)
+  {
+    EEPROM.put(sizeof(EEData)*i, edata);
+    EEPROM.commit();    
+  }
+}
+
+void writeToEprom(int zerobaseIndex, EEData edata)
+{
+  EEPROM.put(sizeof(EEData)*zerobaseIndex, edata);
+  EEPROM.commit();
+}
+
+EEData readFromEprom(uint zerobaseIndex)
+{
+  EEData edata = {0};
+  EEPROM.get(sizeof(EEData)*zerobaseIndex, edata);
+  return edata;
+}
+
+void resetSettings()
+{
+  EESet eset = {0};
+  eset.altitude = 250.0f;
+  eset.position = 255;
+  eset.crc = 4444;
+  EEPROM.put(sizeof(EESet)*245, eset);
+  EEPROM.commit();
+}
+
+void writeSettings(EESet eset)
+{
+  EEPROM.put(sizeof(EESet)*245, eset);
+  EEPROM.commit();
+}
+
+EESet readSettings()
+{
+  EESet eset = {0};
+  EEPROM.get(sizeof(EESet)*245, eset);
+  return eset;
+}
+
+void writePosition(int zerobaseIndex)
+{
+  if (zerobaseIndex > 239)
+  {
+    return;
+  }
+  EESet eset = readSettings();
+  eset.position = zerobaseIndex;
+  writeSettings(eset);
+}
+
+void increasePosition()
+{
+  EESet eset = readSettings();
+  eset.position++;
+  if (eset.position > 239)
+  {
+    eset.position = 0;
+  }
+  writeSettings(eset);
+}
+
+int readPosition()
+{
+  EESet eset = readSettings();
+  if (eset.position == 255)
+  {
+    return 0;
+  }
+  return eset.position;
+}
+
+void clearMinTemp()
+{
+  EEData edata = {0};
+  edata.temperature = 55.5f;
+  edata.processorTemperature = 0.0f;
+  edata.humidity = 0.0f;
+  edata.pressure = 0.0f;
+  edata.hour = 0;
+  edata.minute = 0;
+  edata.day = 1;
+  edata.month = 1;
+  edata.year = 2025;
+  EEPROM.put(sizeof(EEData)*246, edata);
+  EEPROM.commit();
+}
+
+void clearMaxTemp()
+{
+  EEData edata = {0};
+  edata.temperature = -55.5f;
+  edata.processorTemperature = 0.0f;
+  edata.humidity = 0.0f;
+  edata.pressure = 0.0f;
+  edata.hour = 0;
+  edata.minute = 0;
+  edata.day = 1;
+  edata.month = 1;
+  edata.year = 2025;
+  EEPROM.put(sizeof(EEData)*247, edata);
+  EEPROM.commit();
+}
+
+void writeMinTemp(EEData edata)
+{
+  EEPROM.put(sizeof(EEData)*246, edata);
+  EEPROM.commit();
+}
+
+void writeMaxTemp(EEData edata)
+{
+  EEPROM.put(sizeof(EEData)*247, edata);
+  EEPROM.commit();
+}
+
+EEData readMinTemp()
+{
+  EEData edata = {0};
+  EEPROM.get(sizeof(EEData)*246, edata);
+  return edata;
+}
+
+EEData readMaxTemp()
+{
+  EEData edata = {0};
+  EEPROM.get(sizeof(EEData)*247, edata);
+  return edata;
+}
+
+void writeHistory()
+{
+  DateTime now = rtc.now();
+  int pos = readPosition();
+  EEData edata = {0};
+  edata.temperature = temperature;
+  edata.processorTemperature = deviceTemp;
+  edata.humidity = humidity;
+  edata.pressure = pressure;
+  edata.hour = now.hour();
+  edata.minute = now.minute();
+  edata.day = now.day();
+  edata.month = now.month();
+  edata.year = now.year();
+  writeToEprom(pos, edata);
+  increasePosition();
+  EEData eminTemp = {0};
+  eminTemp.temperature = minTemp.temperature;
+  eminTemp.processorTemperature = deviceTemp;
+  eminTemp.humidity = humidity;
+  eminTemp.pressure = pressure;
+  eminTemp.hour = minTemp.hour;
+  eminTemp.minute = minTemp.minute;
+  eminTemp.day = minTemp.day;
+  eminTemp.month = minTemp.month;
+  eminTemp.year = minTemp.year;
+  writeMinTemp(eminTemp);
+  EEData emaxTemp = {0};
+  emaxTemp.temperature = maxTemp.temperature;
+  emaxTemp.processorTemperature = deviceTemp;
+  emaxTemp.humidity = humidity;
+  emaxTemp.pressure = pressure;
+  emaxTemp.hour = maxTemp.hour;
+  emaxTemp.minute = maxTemp.minute;
+  emaxTemp.day = maxTemp.day;
+  emaxTemp.month = maxTemp.month;
+  emaxTemp.year = maxTemp.year;
+  writeMaxTemp(emaxTemp);
+}
+
+Task measureTemp(360000, TASK_FOREVER, &writeHistory, &runner, false);
+
 
 
 String history = R"rawjson(
@@ -729,6 +939,8 @@ void handleSettings()
           <input type="time" id="time" name="time" />
           <label for="date">Nastavit datum:</label>
           <input type="date" id="date" name="date" />
+          <label for="altitude">Výška nad mořem (m):</label>
+          <input type="number" id="altitude" name="altitude" min="0" max="8848" step="1" placeholder="Zadej výšku"/>
           <button type="submit">Uložit nastavení</button>
         </form>
         <h2>Možnosti:</h2>
@@ -790,165 +1002,134 @@ bool setDeviceDate(String date)
   return true;
 }
 
+float parseAltitude(String altitude) {
+    altitude.trim();
+    if (altitude.length() == 0) {
+        return NAN;
+    }
+    for (int i = 0; i < altitude.length(); i++) {
+        char c = altitude[i];
+        if (!(isDigit(c) || c == '.' || (c == '-' && i == 0))) {
+            return NAN;
+        }
+    }
+    float result = altitude.toFloat();
+    if (result == 0.0 && altitude != "0" && altitude != "0.0") {
+        return NAN;
+    }
+    return result;
+}
 
+void setDeviceAltitude(float fAlt)
+{
+  if (fAlt != NAN)
+  {
+    EESet eset = {0};
+    eset = readSettings();
+    eset.altitude = fAlt;
+    writeSettings(eset);
+  }
+}
+
+float getDeviceAltitude()
+{
+  EESet eset = {0};
+  eset = readSettings();
+  return eset.altitude;
+}
 
 void handleApplySettings() 
 {
   String time = server.arg("time");
   String date = server.arg("date");
+  String salt = server.arg("altitude");
   Serial.print("Nastavit čas: ");
   Serial.println(time);
   Serial.print("Nastavit datum: ");
   Serial.println(date);
+  Serial.print("Nastavit vysku v metrech: ");
+  Serial.println(salt);
   setDeviceTime(time);
   setDeviceDate(date);
+  setDeviceAltitude(parseAltitude(salt));
   String sendHtml = R"rawliteral(
   <!DOCTYPE html>
   <html lang="cs">
   <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TempoBW - Nastavení</title>
+    <title>TempoBW</title>
     <style>
       body {
         background-color: #212f3c;
         font-family: Arial, sans-serif;
         color: white;
-        margin: 5;
-        padding: 5;
+        margin: 0;
+        padding: 0;
       }
       .center {
         margin: 20px auto;
         width: 80%;
         text-align: center;
       }
-        .menu {
-          display: flex;
-          justify-content: center;
-          gap: 15px;
-        }
-        .menu button {
-          padding: 15px 30px;
-          font-size: 20px;
-          border: none;
-          border-radius: 5px;
-          cursor: pointer;
-          transition: all 0.3s ease;
-        }
-        .menu button#home {
-          background-color: #4CAF50;
-          color: white;
-        }
-        .menu button#history {
-          background-color: #2196F3;
-          color: white;
-        }
-        .menu button#settings {
-          background-color: #f44336;
-          color: white;
-        }
-        .menu button:hover {
-          opacity: 0.8;
-        }      
-        h1 {
-          color: #4CAF50;
-          font-size: 30px;
-          font-family: 'Lucida Console', serif;
-          text-align: center;
-          text-transform: uppercase;
-        }      
-        h2 {
-          color: #07efcc;
-          font-size: 15px;
-          font-family: 'Lucida Console', serif;
-          text-align: center;
-          text-transform: uppercase;
-        }      
-        h5 {
-          color: #f44336;
-          font-size: 12px;
-          font-family: 'Lucida Console', serif;
-          text-align: center;
-          text-transform: uppercase;
-        }   
-      form {
-        margin: 15px auto;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-      }
-      label {
+      .apos-label {
         font-size: 18px;
-        margin: 10px 0;
-        color: #ddd;
+        color: #4CAF50;
+        font-weight: bold;
+        font-family: 'Lucida Console', serif;
       }
-      input {
-        width: 60%;
-        padding: 10px;
-        margin: 10px 0;
-        border: 1px solid #ccc;
+      .apos-value {
+        font-size: 24px;
+        color: #FFFFFF;
+        background-color: #000000;
+        font-weight: bold;
+        font-family: 'Lucida Console', serif;
+        width: auto;
+        padding: 5px 15px;
         border-radius: 5px;
-        text-align: center;
-        font-size: 16px;
-      }
-      button {
-        background-color: #4CAF50;
-        color: white;
-        border: none;
-        border-radius: 5px;
-        padding: 10px 30px;
-        font-size: 16px;
-        cursor: pointer;
-        transition: all 0.3s ease;
-        width: 150px;
-      }
-      button:hover {
-        background-color: #45a049;
       }
     </style>
     <script>
-      function confirmReset() {
-        if (confirm("Opravdu smazat historii? Je to nevratný krok.")) {
-          document.getElementById("reset-history-form").submit();
-        }
+      function startCountdown() {
+        let value = 2;
+        const span = document.querySelector('.apos-value');
+        const interval = setInterval(() => {
+          span.textContent = value;
+          if (value === 0) {
+            clearInterval(interval);
+            history.back();
+          }
+          value--;
+        }, 1000);
       }
+      window.onload = startCountdown;
     </script>
   </head>
-  <body style="background-color: #212f3c;">
-    <div class="menu">
-      <button id="home" onclick="location.href='/'">Domů</button>
-      <button id="history" onclick="location.href='/history'">Historie</button>
-      <button id="settings" onclick="location.href='/settings'">Nastavení</button>
+  <body>
+    <div class="center">
+      <br>
+      <br>
+      <p><span class="apos-value">3</span></p>
+      <br>
     </div>
     <div class="center">
-      <h1>Nastavení zařízení</h1>
-      <form action="/apply-settings" method="POST">
-        <label for="time">Nastavit čas:</label>
-        <input type="time" id="time" name="time">
-        <label for="date">Nastavit datum:</label>
-        <input type="date" id="date" name="date">
-        <button type="submit">Uložit nastavení</button>
-      </form>
-      <h2>Možnosti:</h2>
-      <form id="reset-history-form" action="/reset-history" method="POST">
-        <button type="button" onclick="confirmReset()">Smazat historii</button>
-      </form>
-      <form action="/restart" method="POST">
-        <button type="submit">Restartovat zařízení</button>
-      </form>
-    </div>
-    <div class="center">
-      <h5>&copy; PROGMaxi software 2025</h5>
+      <p><span class="apos-label">POŽADAVEK ÚSPĚŠNĚ ODESLÁN</span></p>
+      <br>
+      <br>
+      <br>
     </div>
   </body>
-  </html>
+  </html>    
   )rawliteral";
   server.send(200, "text/html", sendHtml);
 }
 
 void handleResetHistory() {
   // Funkce pro smazání historie
-  //resetDeviceHistory();
+  clearHistory();
+  clearMinTemp();
+  clearMaxTemp();
+  writePosition(255);
   String sendHtml = R"rawliteral(
   <!DOCTYPE html>
   <html lang="cs">
@@ -1110,12 +1291,20 @@ void webSocketEvent(uint8_t client_num, WStype_t type, uint8_t *payload, size_t 
   }
 }
 
+// 6000 size eeprom / 24 size EEData = 250
+// Size history = 240 * 24 = 5760
+// 1xSettings (245)
+// 1xMinTemp (246)
+// 1xMaxTemp (247)
+// 1440 / 240 = 6 minutes for one cyclus write to eeprom
+
 
 void setup() 
 {
   Serial.begin(9600);
-  delay(500);
+  delay(600);
   Serial.println("\nTempoBW, welcome!\n");
+  delay(200);
   if ( oled.begin() )
   {
     oled.clearBuffer();
@@ -1128,7 +1317,7 @@ void setup()
     Serial.println("Display init FAIL!");
   }
   delay(50);
-  //ShowIntro("TempoBW");
+  ShowIntro("TempoBW");
   Serial.print("Starting bluetooth...");
   int connectBluetoothDelta = 0;
   while(!SerialBT.begin("TempoBW", true, false))
@@ -1186,7 +1375,29 @@ void setup()
   }
   else
   {
+    EESet eset = readSettings();
+    if (eset.crc != 4444)
+    {
+      resetSettings();
+      clearHistory();
+      clearMinTemp();
+      clearMaxTemp();
+      altitude = 250.0f;
+      Serial.println("NEW EEPROM settings init!");
+    }
+    else
+    {
+      altitude = eset.altitude;
+    }
     Serial.println("EEPROM init OK!");
+    Serial.print("Size EEPROM: ");
+    Serial.println(EEPROM.length());
+    Serial.print("Current position: ");
+    Serial.println(eset.position);
+    Serial.print("Current altitude: ");
+    Serial.println(altitude);
+    measureTemp.enableDelayed(360000);
+    Serial.println("Writter eeprom starting [6min] !");
   }
   if (!rtc.begin()) 
   {
@@ -1221,6 +1432,7 @@ void setup()
   dallas.setResolution(12);
   dallas.requestTemperatures();
   Serial.println("DALLAS sensor init OK!");
+  Serial.println("TempoBW run!!");
 }
 
 
@@ -1270,7 +1482,7 @@ void loop()
 
   DynamicJsonDocument json(512);
   json["temperature"] = String(temperature, 1);
-  json["pressure"] = String(calculateSeaLevelPressure(pressure,ALTITUDE),2); //String(pressure, 1);
+  json["pressure"] = String(calculateSeaLevelPressure(pressure,altitude),2); //String(pressure, 1);
   json["humidity"] = String(humidity, 1);
   json["devTemp"] = String(deviceTemp, 1);
   json["clientCount"] = clientCount;
@@ -1308,6 +1520,109 @@ void loop()
     SerialBT.write(Serial.read());
   }
   */
+
+  unsigned long currentMillis = millis();
+  if (currentMillis - previousMillis >= interval) 
+  {
+    previousMillis = currentMillis;
+    deltaDraw++;
+    if (deltaDraw > 7)
+      deltaDraw = 0;
+  }
+
+  switch(deltaDraw)
+  {
+    case 0:
+    {
+      String strData = String(temperature, 1);
+      strData += " ";
+      strData += (char)176;
+      strData += "C";
+      ShowData("*- TEPLOTA -*", strData);
+      break;
+    }
+    case 1:
+    {
+      String strData = String(humidity, 1);
+      strData += " %";
+      ShowData("VLHKOST", strData);
+      break;
+    }
+    case 2:
+    {
+      String strData = String(calculateSeaLevelPressure(pressure,altitude),2);
+      strData += " hPa";
+      ShowData("ATM. TLAK", strData);
+      break;
+    }
+    case 3:
+    {
+      String strData = "MIN ";
+      strData += (minTemp.day < 10 ? "0" : "") + String(minTemp.day);
+      strData += "/";
+      strData += (minTemp.month < 10 ? "0" : "") + String(minTemp.month);
+      strData += "/";
+      strData += String(minTemp.year).substring(2);      
+      strData += " ";
+      strData += (minTemp.hour < 10 ? "0" : "") + String(minTemp.hour);
+      strData += ":";
+      strData += (minTemp.minute < 10 ? "0" : "") + String(minTemp.minute);
+      String strData2 = String(minTemp.temperature, 1);
+      strData2 += " ";
+      strData2 += (char)176;
+      strData2 += "C";
+      ShowData(strData, strData2);
+      break;
+    }
+    case 4:
+    {
+      String strData = "MAX ";
+      strData += (maxTemp.day < 10 ? "0" : "") + String(maxTemp.day);
+      strData += "/";
+      strData += (maxTemp.month < 10 ? "0" : "") + String(maxTemp.month);
+      strData += "/";
+      strData += String(maxTemp.year).substring(2);      
+      strData += " ";
+      strData += (maxTemp.hour < 10 ? "0" : "") + String(maxTemp.hour);
+      strData += ":";
+      strData += (maxTemp.minute < 10 ? "0" : "") + String(maxTemp.minute);
+      String strData2 = String(maxTemp.temperature, 1);
+      strData2 += " ";
+      strData2 += (char)176;
+      strData2 += "C";
+      ShowData(strData, strData2);
+      break;
+    }
+    case 5:
+    {
+      //DateTime now = rtc.now();
+      String strData = (now.hour() < 10 ? "0" : "") + String(now.hour());
+      strData += ":";
+      strData += (now.minute() < 10 ? "0" : "") + String(now.minute());
+      ShowData("CAS ZARIZENI", strData);
+      break;
+    }
+    case 6:
+    {
+      String strData = (now.day() < 10 ? "0" : "") + String(now.day());
+      strData += "/";
+      strData += (now.month() < 10 ? "0" : "") + String(now.month());
+      strData += "/";
+      strData += String(now.year()).substring(2);;
+      ShowData("DATUM ZARIZENI", strData);
+      break;
+    }
+    case 7:
+    {
+      String strData = String(deviceTemp, 1);
+      strData += " ";
+      strData += (char)176;
+      strData += "C";
+      ShowData("TEPLOTA ZARIZENI", strData);
+      break;
+    }
+  }
+
 }
 
 
