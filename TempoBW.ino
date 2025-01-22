@@ -160,25 +160,22 @@ void WiFiEvent(WiFiEvent_t event, WiFiEventInfo_t info)
     case ARDUINO_EVENT_WIFI_AP_STOP:            Serial.println("WiFi access point  stopped"); break;
     case ARDUINO_EVENT_WIFI_AP_STACONNECTED:
     {
-      Serial.print("Client connected: ");
+      clientCount++;
+      Serial.print("Client #");
+      Serial.print(clientCount);
+      Serial.print(" connected: ");
       char macStr[18];
       snprintf(macStr, sizeof(macStr), "%02X:%02X:%02X:%02X:%02X:%02X",
                info.wifi_ap_staconnected.mac[0], info.wifi_ap_staconnected.mac[1],
                info.wifi_ap_staconnected.mac[2], info.wifi_ap_staconnected.mac[3],
                info.wifi_ap_staconnected.mac[4], info.wifi_ap_staconnected.mac[5]);
       Serial.println(macStr);
-      clientCount++;
-      Serial.println("Clients connected!");
-      Serial.print("Clients count connected #");
-      Serial.println(clientCount);
       break;
     }
     case ARDUINO_EVENT_WIFI_AP_STADISCONNECTED:
     {
       Serial.println("Client disconnected!");
       clientCount--;
-      Serial.print("Clients count connected #");
-      Serial.println(clientCount);
       break;
     }
     case ARDUINO_EVENT_WIFI_AP_STAIPASSIGNED:
@@ -220,7 +217,9 @@ void clearHistory()
 void writeToEprom(int zerobaseIndex, EEData edata)
 {
   EEPROM.put(sizeof(EEData)*zerobaseIndex, edata);
+  delay(50);
   EEPROM.commit();
+  delay(50);
 }
 
 EEData readFromEprom(uint zerobaseIndex)
@@ -237,13 +236,17 @@ void resetSettings()
   eset.position = 255;
   eset.crc = 4444;
   EEPROM.put(sizeof(EESet)*245, eset);
+  delay(50);
   EEPROM.commit();
+  delay(50);
 }
 
 void writeSettings(EESet eset)
 {
   EEPROM.put(sizeof(EESet)*245, eset);
+  delay(50);
   EEPROM.commit();
+  delay(50);
 }
 
 EESet readSettings()
@@ -255,24 +258,24 @@ EESet readSettings()
 
 void writePosition(int zerobaseIndex)
 {
-  if (zerobaseIndex > 239)
-  {
-    return;
-  }
   EESet eset = readSettings();
+  delay(50);
   eset.position = zerobaseIndex;
   writeSettings(eset);
+  delay(50);
 }
 
 void increasePosition()
 {
   EESet eset = readSettings();
+  delay(50);
   eset.position++;
   if (eset.position > 239)
   {
     eset.position = 0;
   }
   writeSettings(eset);
+  delay(50);
 }
 
 int readPosition()
@@ -298,7 +301,9 @@ void clearMinTemp()
   edata.month = 1;
   edata.year = 2025;
   EEPROM.put(sizeof(EEData)*246, edata);
+  delay(50);
   EEPROM.commit();
+  delay(50);
 }
 
 void clearMaxTemp()
@@ -314,19 +319,25 @@ void clearMaxTemp()
   edata.month = 1;
   edata.year = 2025;
   EEPROM.put(sizeof(EEData)*247, edata);
+  delay(50);
   EEPROM.commit();
+  delay(50);
 }
 
 void writeMinTemp(EEData edata)
 {
   EEPROM.put(sizeof(EEData)*246, edata);
+  delay(50);
   EEPROM.commit();
+  delay(50);
 }
 
 void writeMaxTemp(EEData edata)
 {
   EEPROM.put(sizeof(EEData)*247, edata);
+  delay(50);
   EEPROM.commit();
+  delay(50);
 }
 
 EEData readMinTemp()
@@ -347,6 +358,7 @@ void writeHistory()
 {
   DateTime now = rtc.now();
   int pos = readPosition();
+  delay(50);
   EEData edata = {0};
   edata.temperature = temperature;
   edata.processorTemperature = deviceTemp;
@@ -358,7 +370,9 @@ void writeHistory()
   edata.month = now.month();
   edata.year = now.year();
   writeToEprom(pos, edata);
+  delay(50);
   increasePosition();
+  delay(50);
   EEData eminTemp = {0};
   eminTemp.temperature = minTemp.temperature;
   eminTemp.processorTemperature = deviceTemp;
@@ -370,6 +384,7 @@ void writeHistory()
   eminTemp.month = minTemp.month;
   eminTemp.year = minTemp.year;
   writeMinTemp(eminTemp);
+  delay(50);
   EEData emaxTemp = {0};
   emaxTemp.temperature = maxTemp.temperature;
   emaxTemp.processorTemperature = deviceTemp;
@@ -381,6 +396,7 @@ void writeHistory()
   emaxTemp.month = maxTemp.month;
   emaxTemp.year = maxTemp.year;
   writeMaxTemp(emaxTemp);
+  delay(50);
 }
 
 Task measureTemp(360000, TASK_FOREVER, &writeHistory, &runner, false);
@@ -422,7 +438,6 @@ void handleRoot()
                       document.getElementById("maximumDate").innerText = 
                           `${formatWithLeadingZero(data.maxTemperatureDay)}/${formatWithLeadingZero(data.maxTemperatureMonth)}/${data.maxTemperatureYear}`;
                   };
-
                   socket.onerror = function (error) {
                       console.error("WebSocket error:", error);
                       document.getElementById("temp").innerText = "WS CHYBA!";
@@ -431,6 +446,12 @@ void handleRoot()
                       console.warn("WebSocket connection closed.");
                       document.getElementById("temp").innerText = "WS UZAVŘEN!";
                   };
+                  window.addEventListener("beforeunload", () => {
+                      // Uzavření WebSocket spojení
+                      if (websocket.readyState === WebSocket.OPEN) {
+                          websocket.close();
+                      }
+                  });                  
               }
               window.onload = initWebSocket;
           </script>
@@ -594,7 +615,6 @@ void handleHistory()
 {
   if (readPosition() == 255)
   {
-    Serial.println("NEJSOU DATA K ZOBRAZENI!");
     String emptyHistoryHtml = R"rawliteral(
     <!doctype html>
     <html lang="cs">
@@ -714,58 +734,6 @@ void handleHistory()
         <meta charset="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <title>TempoBW - Historie</title>
-        <script>
-          const history = [
-            {
-              apos: 32,
-              time: "12:00",
-              date: "25/12/2025",
-              temperature: 25.5,
-              pressure: 1013.2,
-              humidity: 50.0,
-              devtemperature: 32.3
-            },
-            {
-              apos: 32,
-              time: "12:00",
-              date: "25/12/2025",
-              temperature: 25.5,
-              pressure: 1013.2,
-              humidity: 50.0,
-              devtemperature: 32.3
-            },
-            {
-              apos: 32,
-              time: "12:00",
-              date: "25/12/2025",
-              temperature: 25.5,
-              pressure: 1013.2,
-              humidity: 50.0,
-              devtemperature: 32.3
-            }
-          ];
-          function fetchHistory() {
-            fetch("/history-data")
-              .then((response) => response.json())
-              .then((data) => {
-                const table = document.getElementById("history-table");
-                const aposLabel = document.querySelector(".apos-label");
-                const aposValue = document.querySelector(".apos-value");
-                table.innerHTML =
-                  "<tr><th>###</th><th>ČAS</th><th>DATUM</th><th>TEPLOTA</th></tr>";
-                data.forEach((row, index) => {
-                  table.innerHTML += `<tr>
-                    aposValue.innerText = ${row[0]}
-                    <td>${index + 1}</td>
-                    <td>${row[1]}</td>
-                    <td>${row[2]}</td>
-                    <td>${row[3]} °C</td>
-                    </tr>`;
-                });
-              });
-          }
-          window.onload = fetchHistory;
-        </script>
         <style>
           .center {
             margin: 2px auto;
@@ -787,6 +755,10 @@ void handleHistory()
             transition: all 0.3s ease;
           }
           .menu button#home {
+            background-color: #4caf50;
+            color: white;
+          }
+          .menu button#loadData {
             background-color: #4caf50;
             color: white;
           }
@@ -823,7 +795,7 @@ void handleHistory()
             text-transform: uppercase;
           }
           table {
-            width: 90%;
+            width: 80%;
             border-collapse: collapse;
             margin: 10px auto;
             justify-content: center;
@@ -846,6 +818,9 @@ void handleHistory()
             color: white;
             font-size: 12px;
           }
+          tr:nth-child(even) td {
+            background-color: #1a1a1a; /* Lehce světlejší černá */
+          }          
           .apos-label {
             font-size: 16px;
             color: #4caf50;
@@ -872,17 +847,180 @@ void handleHistory()
         </div>
         <div class="center">
           <br />
+          <p><span class="apos-label">AKTUÁLNÍ POZICE:</span> <span class="apos-value" id="posvalue">0</span></p>
           <br />
-          <p><span class="apos-label">AKTUÁLNÍ POZICE:</span> <span class="apos-value">0</span></p>
+          <div>
+              <button class="apos-label" id="toggleWebSocket">Připojit WebSocket</button>
+              <br />
+              <br />
+              <span class="apos-value" id="webSocketStatus">Odpojeno</span>
+          </div>
           <br />
         </div>
-        <table id="history-table"></table>
+        <div class="menu">
+          <button id="loadData">Načíst data</button>
+        </div>
+        <br />
+        <br />
+        <table>
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Datum</th>
+              <th>Čas</th>
+              <th>Teplota</th>
+              <th>Vlhkost</th>
+              <th>Tlak</th>
+            </tr>
+          </thead>
+          <tbody id="dataBody">
+            <!-- Data budou dynamicky načtena sem -->
+          </tbody>
+        </table>
         <div class="center">
           <br />
           <h5>PROGMaxi software 2025</h5>
           <br />
           <br />
         </div>
+
+        <script>
+let websocket = null;
+let currentPosition = 0;
+let idrow = 0;
+
+const buttonToggle = document.getElementById("toggleWebSocket");
+const buttonLoadData = document.getElementById("loadData");
+const statusDisplay = document.getElementById("webSocketStatus");
+
+function updateStatusDisplay() {
+    if (websocket) {
+        switch (websocket.readyState) {
+            case WebSocket.CONNECTING:
+                statusDisplay.textContent = "Připojování...";
+                break;
+            case WebSocket.OPEN:
+                statusDisplay.textContent = "Připojeno";
+                break;
+            case WebSocket.CLOSING:
+                statusDisplay.textContent = "Odpojování...";
+                break;
+            case WebSocket.CLOSED:
+                statusDisplay.textContent = "Odpojeno";
+                break;
+        }
+    } else {
+        statusDisplay.textContent = "Odpojeno";
+    }
+}
+
+function connectWebSocket() {
+    websocket = new WebSocket("ws://" + location.host + ":81");
+
+    websocket.onopen = () => {
+        console.log("WebSocket připojen.");
+        updateStatusDisplay();
+    };
+
+    websocket.onmessage = (event) => {
+        try {
+            const message = JSON.parse(event.data);
+
+            if (message.type === "position") {
+                currentPosition = message.position;
+                document.getElementById("posvalue").textContent = currentPosition;
+                idrow = 0;
+                sendMessage("loadhistory");
+            } else if (message.type === "history") {
+                const data = message.payload;
+
+                if (
+                    typeof data.temperature === "number" &&
+                    typeof data.humidity === "number" &&
+                    typeof data.pressure === "number" &&
+                    typeof data.hour === "number" &&
+                    typeof data.minute === "number" &&
+                    typeof data.day === "number" &&
+                    typeof data.month === "number" &&
+                    typeof data.year === "number"
+                ) {
+                    const tableBody = document.getElementById("dataBody");
+                    const row = document.createElement("tr");
+                    const date = `${String(data.day).padStart(2, "0")}.${String(data.month).padStart(2, "0")}.${data.year}`;
+                    const time = `${String(data.hour).padStart(2, "0")}:${String(data.minute).padStart(2, "0")}`;
+                    row.innerHTML = `
+                        <td>${++idrow}</td>
+                        <td>${date}</td>
+                        <td>${time}</td>
+                        <td>${data.temperature.toFixed(1)} &deg;C</td>
+                        <td>${data.humidity.toFixed(0)} %</td>
+                        <td>${data.pressure.toFixed(1)} hPa</td>
+                    `;
+                    tableBody.appendChild(row);
+
+                    if (idrow === currentPosition) {
+                        row.classList.add("highlight");
+                    }
+                } else {
+                    console.error("Neplatná data:", data);
+                    alert("Neplatná data přijata ze serveru.");
+                }
+            }
+        } catch (error) {
+            console.error("Chyba při zpracování zprávy WebSocket:", error);
+            alert("Chyba při zpracování dat.");
+        }
+    };
+
+    websocket.onerror = (error) => {
+        console.error("WebSocket chyba:", error);
+        alert("Došlo k chybě WebSocket připojení.");
+    };
+
+    websocket.onclose = () => {
+        console.log("WebSocket spojení bylo uzavřeno.");
+        updateStatusDisplay();
+    };
+
+    updateStatusDisplay();
+}
+
+function disconnectWebSocket() {
+    if (websocket) {
+        websocket.close();
+        websocket = null;
+        updateStatusDisplay();
+    }
+}
+
+function sendMessage(message) {
+    if (websocket && websocket.readyState === WebSocket.OPEN) {
+        websocket.send(message);
+    } else {
+        alert("WebSocket není připojen.");
+    }
+}
+
+buttonToggle.addEventListener("click", () => {
+    if (websocket && websocket.readyState === WebSocket.OPEN) {
+        disconnectWebSocket();
+        buttonToggle.textContent = "Připojit WebSocket";
+    } else {
+        connectWebSocket();
+        buttonToggle.textContent = "Odpojit WebSocket";
+    }
+});
+
+buttonLoadData.addEventListener("click", () => {
+    sendMessage("getPosition");
+});
+
+// Aktualizace stavu při načtení stránky
+document.addEventListener("DOMContentLoaded", () => {
+    updateStatusDisplay();
+});
+        </script>
+
       </body>
     </html>
     )rawliteral";
@@ -1260,7 +1398,11 @@ void handleApplySettings()
 
 
 void handleResetHistory() {
-  // Funkce pro smazání historie
+    // Funkce pro smazání historie
+  clearHistory();
+  clearMinTemp();
+  clearMaxTemp();
+  writePosition(255);
   String sendHtml = R"rawliteral(
   <!DOCTYPE html>
   <html lang="cs">
@@ -1326,10 +1468,6 @@ void handleResetHistory() {
   </html>    
   )rawliteral";
   server.send(200, "text/html", sendHtml);
-  clearHistory();
-  clearMinTemp();
-  clearMaxTemp();
-  writePosition(255);
 }
 
 void handleRestart() {
@@ -1484,19 +1622,64 @@ void handleFactory()
   ESP.restart();
 }
 
+void sendHistory(uint8_t clientNum) 
+{
+    for (int i = 0; i < 240; i++) 
+    {
+        EEData data = readFromEprom(i);
+        DynamicJsonDocument doc(256);
+        doc["type"] = "history";
+        // Vkládání dat do vlastnosti `payload`
+        JsonObject payload = doc.createNestedObject("payload");
+        payload["temperature"] = data.temperature;
+        //payload["processorTemperature"] = data.processorTemperature;
+        payload["humidity"] = data.humidity;
+        payload["pressure"] = data.pressure;
+        payload["hour"] = data.hour;
+        payload["minute"] = data.minute;
+        payload["day"] = data.day;
+        payload["month"] = data.month;
+        payload["year"] = data.year;
+        String jsonString;
+        serializeJson(doc, jsonString);
+        webSocket.sendTXT(clientNum, jsonString);
+        delay(10);
+    }
+}
+
+
 void webSocketEvent(uint8_t client_num, WStype_t type, uint8_t *payload, size_t length) 
 {
   if (type == WStype_CONNECTED) 
   {
-    //clientCount++;
-    //Serial.printf("Client %u connected\n", client_num);
+    Serial.println("WebS connected");
   } 
   else if (type == WStype_DISCONNECTED) 
   {
-    //clientCount--;
-    //Serial.printf("Client %u disconnected\n", client_num);
+    Serial.println("WebS disconnected");
+  }
+  if (type == WStype_TEXT) 
+  {
+    String message = String((char *)payload).substring(0, length);
+    if (message == "getPosition") 
+    {
+      int position = readPosition();
+      DynamicJsonDocument doc(64);
+      doc["type"] = "position";
+      doc["position"] = position;
+      String jsonString;
+      serializeJson(doc, jsonString);
+      webSocket.sendTXT(client_num, jsonString);
+    } 
+    else if (message == "loadhistory") 
+    {
+      sendHistory(client_num);
+    }
   }
 }
+
+
+
 
 // 6000 size eeprom / 24 size EEData = 250
 // Size history = 240 * 24 = 5760
@@ -1715,7 +1898,7 @@ void loop()
 
   server.handleClient();
   webSocket.loop();
-
+  
   /*
   if (SerialBT.available()) {
     char incomingChar = SerialBT.read();
@@ -1830,6 +2013,7 @@ void loop()
     }
   }
 
+  runner.execute();
 }
 
 
