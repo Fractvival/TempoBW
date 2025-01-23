@@ -217,9 +217,7 @@ void clearHistory()
 void writeToEprom(int zerobaseIndex, EEData edata)
 {
   EEPROM.put(sizeof(EEData)*zerobaseIndex, edata);
-  delay(50);
   EEPROM.commit();
-  delay(50);
 }
 
 EEData readFromEprom(uint zerobaseIndex)
@@ -235,25 +233,52 @@ void resetSettings()
   eset.altitude = 250.0f;
   eset.position = 255;
   eset.crc = 4444;
-  EEPROM.put(sizeof(EESet)*245, eset);
-  delay(50);
+  EEPROM.put(sizeof(EEData)*245, eset);
   EEPROM.commit();
-  delay(50);
+  delay(500);
 }
 
 void writeSettings(EESet eset)
 {
-  EEPROM.put(sizeof(EESet)*245, eset);
-  delay(50);
+  Serial.println("WRITE SETTINGS:");
+  Serial.print("CRC: ");
+  Serial.println(eset.crc);
+  Serial.print("ALTITUDE: ");
+  Serial.println(eset.altitude);
+  Serial.print("POSITION: ");
+  Serial.println(eset.position);
+  EEPROM.put(sizeof(EEData)*245, eset);
   EEPROM.commit();
-  delay(50);
+  delay(500);
 }
 
 EESet readSettings()
 {
   EESet eset = {0};
-  EEPROM.get(sizeof(EESet)*245, eset);
+  EEPROM.get(sizeof(EEData)*245, eset);
+  Serial.println("READ SETTINGS:");
+  Serial.print("CRC: ");
+  Serial.println(eset.crc);
+  Serial.print("ALTITUDE: ");
+  Serial.println(eset.altitude);
+  Serial.print("POSITION: ");
+  Serial.println(eset.position);
   return eset;
+}
+
+void writeAltitude(float altitude)
+{
+  EESet eset = {0};
+  eset = readSettings();
+  eset.altitude = altitude;
+  writeSettings(eset);
+}
+
+float readAltitude()
+{
+  EESet eset = {0};
+  eset = readSettings();
+  return eset.altitude;
 }
 
 void writePosition(int zerobaseIndex)
@@ -397,6 +422,7 @@ void writeHistory()
   emaxTemp.year = maxTemp.year;
   writeMaxTemp(emaxTemp);
   delay(50);
+  Serial.println("Write history!");
 }
 
 Task measureTemp(360000, TASK_FOREVER, &writeHistory, &runner, false);
@@ -404,6 +430,7 @@ Task measureTemp(360000, TASK_FOREVER, &writeHistory, &runner, false);
 
 void handleRoot() 
 {
+  Serial.println("Index page!");
   String html = R"rawliteral(
   <!doctype html>
   <html lang="cs">
@@ -613,6 +640,7 @@ String history = R"rawjson(
 
 void handleHistory() 
 {
+  Serial.println("History page!");
   if (readPosition() == 255)
   {
     String emptyHistoryHtml = R"rawliteral(
@@ -728,301 +756,298 @@ void handleHistory()
   else
   {
     String html = R"rawliteral(
-    <!doctype html>
-    <html lang="cs">
-      <head>
+<!doctype html>
+<html lang="cs">
+    <head>
         <meta charset="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <title>TempoBW - Historie</title>
         <style>
-          .center {
-            margin: 2px auto;
-            width: 80%;
-            border: 0px solid black;
-            text-align: center;
-          }
-          .menu {
-            display: flex;
-            justify-content: center;
-            gap: 15px;
-          }
-          .menu button {
-            padding: 15px 30px;
-            font-size: 15px;
-            border: none;
-            border-radius: 5px;
-            cursor: pointer;
-            transition: all 0.3s ease;
-          }
-          .menu button#home {
-            background-color: #4caf50;
-            color: white;
-          }
-          .menu button#loadData {
-            background-color: #4caf50;
-            color: white;
-          }
-          .menu button#history {
-            background-color: #2196f3;
-            color: white;
-          }
-          .menu button#settings {
-            background-color: #f44336;
-            color: white;
-          }
-          .menu button:hover {
-            opacity: 0.8;
-          }
-          h1 {
-            color: #4caf50;
-            font-size: 26px;
-            font-family: "Lucida Console", serif;
-            text-align: center;
-            text-transform: uppercase;
-          }
-          h2 {
-            color: #07efcc;
-            font-size: 15px;
-            font-family: "Lucida Console", serif;
-            text-align: center;
-            text-transform: uppercase;
-          }
-          h5 {
-            color: #f44336;
-            font-size: 12px;
-            font-family: "Lucida Console", serif;
-            text-align: center;
-            text-transform: uppercase;
-          }
-          table {
-            width: 80%;
-            border-collapse: collapse;
-            margin: 10px auto;
-            justify-content: center;
-          }
-          th,
-          td {
-            border: 1px solid #ddd;
-            padding: 8px;
-            text-align: center;
-            width: auto;
-          }
-          td {
-            background-color: #000000;
-            color: #ffffff;
-            font-family: "Lucida Console", serif;
-            font-size: 12px;
-          }
-          th {
-            background-color: #4caf50;
-            color: white;
-            font-size: 12px;
-          }
-          tr:nth-child(even) td {
-            background-color: #1a1a1a; /* Lehce světlejší černá */
-          }          
-          .apos-label {
-            font-size: 16px;
-            color: #4caf50;
-            font-weight: bold;
-            font-family: "Lucida Console", serif;
-          }
-          .apos-value {
-            font-size: 20px;
-            color: #ffffff;
-            background-color: #000000;
-            font-weight: bold;
-            font-family: "Lucida Console", serif;
-            width: auto;
-            padding: 5px 15px;
-            border-radius: 5px;
-          }
+            .center {
+                margin: 2px auto;
+                width: 80%;
+                border: 0px solid black;
+                text-align: center;
+            }
+            .menu {
+                display: flex;
+                justify-content: center;
+                gap: 15px;
+            }
+            .menu button {
+                padding: 15px 30px;
+                font-size: 15px;
+                border: none;
+                border-radius: 5px;
+                cursor: pointer;
+                transition: all 0.3s ease;
+            }
+            .menu button#home {
+                background-color: #4caf50;
+                color: white;
+            }
+            .menu button#loadData {
+                background-color: #4caf50;
+                color: white;
+            }
+            .menu button#history {
+                background-color: #2196f3;
+                color: white;
+            }
+            .menu button#settings {
+                background-color: #f44336;
+                color: white;
+            }
+            .menu button:hover {
+                opacity: 0.8;
+            }
+            h1 {
+                color: #4caf50;
+                font-size: 26px;
+                font-family: "Lucida Console", serif;
+                text-align: center;
+                text-transform: uppercase;
+            }
+            h2 {
+                color: #07efcc;
+                font-size: 15px;
+                font-family: "Lucida Console", serif;
+                text-align: center;
+                text-transform: uppercase;
+            }
+            h5 {
+                color: #f44336;
+                font-size: 12px;
+                font-family: "Lucida Console", serif;
+                text-align: center;
+                text-transform: uppercase;
+            }
+            table {
+                width: 80%;
+                border-collapse: collapse;
+                margin: 10px auto;
+                justify-content: center;
+            }
+            th,
+            td {
+                border: 1px solid #ddd;
+                padding: 8px;
+                text-align: center;
+                width: auto;
+            }
+            td {
+                background-color: #000000;
+                color: #ffffff;
+                font-family: "Lucida Console", serif;
+                font-size: 12px;
+            }
+            th {
+                background-color: #4caf50;
+                color: white;
+                font-size: 12px;
+            }
+            tr:nth-child(even) td {
+                background-color: #1a1a1a; /* Lehce světlejší černá */
+            }
+            .apos-label {
+                font-size: 16px;
+                color: #4caf50;
+                font-weight: bold;
+                font-family: "Lucida Console", serif;
+            }
+            .apos-value {
+                font-size: 20px;
+                color: #ffffff;
+                background-color: #000000;
+                font-weight: bold;
+                font-family: "Lucida Console", serif;
+                width: auto;
+                padding: 5px 15px;
+                border-radius: 5px;
+            }
+            .tooglebutton {
+                padding: 10px 20px;
+                font-size: 12px;
+                border: none;
+                border-radius: 5px;
+                cursor: pointer;
+                transition: all 0.3s ease;
+            }
         </style>
-      </head>
-      <body style="background-color: #212f3c">
+    <script>
+        let websocket = null;
+        let currentPosition = 0;
+        let idrow = 0;
+        const buttonToggle = document.getElementById("toggleWebSocket");
+        const buttonLoadData = document.getElementById("loadData");
+        const statusDisplay = document.getElementById("webSocketStatus");
+
+        document.addEventListener("click", (event) => {
+            // Detekujeme kliknutí na tlačítko s atributem data-href
+            if (event.target.tagName === "BUTTON" && event.target.hasAttribute("data-href")) {
+                const targetHref = event.target.getAttribute("data-href");
+
+                // Kontrola, zda je WebSocket stále připojen
+                if (websocket && websocket.readyState === WebSocket.OPEN) {
+                    event.preventDefault(); // Zastavíme přechod na jinou stránku
+                    alert("WebSocket je stále připojen. Nejprve ho odpojte."); // Upozornění uživateli
+                } else {
+                    // Pokud není WebSocket připojen, přejdeme na cílovou stránku
+                    window.location.href = targetHref;
+                }
+            }
+        });        
+
+        function updateStatusDisplay() {
+            if (websocket) {
+                switch (websocket.readyState) {
+                    case WebSocket.CONNECTING:
+                        statusDisplay.textContent = "Připojování...";
+                        break;
+                    case WebSocket.OPEN:
+                        statusDisplay.textContent = "Připojeno";
+                        break;
+                    case WebSocket.CLOSING:
+                        statusDisplay.textContent = "Odpojuji...";
+                        break;
+                    case WebSocket.CLOSED:
+                        statusDisplay.textContent = "Odpojeno";
+                        break;
+                }
+            } else {
+                statusDisplay.textContent = "Odpojeno";
+            }
+        }
+
+        function connectWebSocket() {
+            websocket = new WebSocket("ws://" + location.host + ":81");
+
+            websocket.onopen = () => {
+                console.log("WebSocket připojen.");
+                updateStatusDisplay();
+            };
+
+            websocket.onmessage = (event) => {
+                const message = JSON.parse(event.data);
+                if (message.type === "position") {
+                    currentPosition = message.position;
+                    idrow = 0;
+                    sendMessage("loadhistory");
+                } else if (message.type === "history") {
+                    const data = message.payload;
+                    if (data && typeof data.temperature === "number") {
+                        const tableBody = document.getElementById("dataBody");
+                        const row = document.createElement("tr");
+                        const date = `${String(data.day).padStart(2, "0")}.${String(data.month).padStart(2, "0")}.${data.year}`;
+                        const time = `${String(data.hour).padStart(2, "0")}:${String(data.minute).padStart(2, "0")}`;
+                        row.innerHTML = `
+                            <td>${++idrow}</td>
+                            <td>${date}</td>
+                            <td>${time}</td>
+                            <td>${data.temperature.toFixed(1)} &deg;C</td>
+                            <td>${data.humidity.toFixed(0)} %</td>
+                            <td>${(data.pressure / 100).toFixed(0)} hPa</td>
+                        `;
+                        tableBody.appendChild(row);
+                    }
+                }
+            };
+
+            websocket.onclose = () => {
+                console.log("WebSocket uzavřen.");
+                updateStatusDisplay();
+            };
+
+            websocket.onerror = (error) => {
+                console.error("WebSocket chyba:", error);
+                updateStatusDisplay();
+            };
+        }
+
+        function disconnectWebSocket(callback) {
+            if (websocket && websocket.readyState === WebSocket.OPEN) {
+                websocket.close();
+                websocket.onclose = () => {
+                    updateStatusDisplay();
+                    if (callback) callback();
+                };
+            } else if (callback) {
+                callback();
+            }
+        }
+
+        function sendMessage(message) {
+            if (websocket && websocket.readyState === WebSocket.OPEN) {
+                websocket.send(message);
+            } else {
+                alert("WebSocket není připojen.");
+            }
+        }
+
+        buttonToggle.addEventListener("click", () => {
+            if (websocket && websocket.readyState === WebSocket.OPEN) {
+                disconnectWebSocket(() => {
+                    buttonToggle.textContent = "Připojit WebSocket";
+                });
+            } else {
+                connectWebSocket();
+                buttonToggle.textContent = "Odpojit WebSocket";
+            }
+        });
+
+        buttonLoadData.addEventListener("click", () => {
+            sendMessage("getPosition");
+        });
+
+    </script>
+
+    </head>
+    <body style="background-color: #212f3c">
         <div class="menu">
-          <button id="home" onclick="location.href='/'">Domů</button>
-          <button id="history" onclick="location.href='/history'">Historie</button>
-          <button id="settings" onclick="location.href='/settings'">Nastavení</button>
+            <button id="home" data-href="/">Domů</button>
+            <button id="history" data-href="/history">Historie</button>
+            <button id="settings" data-href="/settings">Nastavení</button>
         </div>
         <div class="center">
-          <br />
-          <p><span class="apos-label">AKTUÁLNÍ POZICE:</span> <span class="apos-value" id="posvalue">0</span></p>
-          <br />
-          <div>
-              <button class="apos-label" id="toggleWebSocket">Připojit WebSocket</button>
-              <br />
-              <br />
-              <span class="apos-value" id="webSocketStatus">Odpojeno</span>
-          </div>
-          <br />
+            <br />
+            <p><span class="apos-label">AKTUÁLNÍ POZICE:</span> <span class="apos-value" id="posvalue">0</span></p>
+            <br />
+            <div>
+                <button class="tooglebutton" id="toggleWebSocket">Připojit WebSocket</button>
+                <br />
+                <br />
+                <span class="apos-value" id="webSocketStatus">Odpojeno</span>
+            </div>
+            <br />
         </div>
         <div class="menu">
-          <button id="loadData">Načíst data</button>
+            <button id="loadData">Načíst data</button>
         </div>
         <br />
         <br />
         <table>
-          <thead>
-            <tr>
-              <th>#</th>
-              <th>Datum</th>
-              <th>Čas</th>
-              <th>Teplota</th>
-              <th>Vlhkost</th>
-              <th>Tlak</th>
-            </tr>
-          </thead>
-          <tbody id="dataBody">
-            <!-- Data budou dynamicky načtena sem -->
-          </tbody>
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>Datum</th>
+                    <th>Čas</th>
+                    <th>Teplota</th>
+                    <th>Vlhkost</th>
+                    <th>Tlak</th>
+                </tr>
+            </thead>
+            <tbody id="dataBody">
+                <!-- Data budou dynamicky načtena sem -->
+            </tbody>
         </table>
         <div class="center">
-          <br />
-          <h5>PROGMaxi software 2025</h5>
-          <br />
-          <br />
+            <br />
+            <h5>PROGMaxi software 2025</h5>
+            <br />
+            <br />
         </div>
-
-        <script>
-let websocket = null;
-let currentPosition = 0;
-let idrow = 0;
-
-const buttonToggle = document.getElementById("toggleWebSocket");
-const buttonLoadData = document.getElementById("loadData");
-const statusDisplay = document.getElementById("webSocketStatus");
-
-function updateStatusDisplay() {
-    if (websocket) {
-        switch (websocket.readyState) {
-            case WebSocket.CONNECTING:
-                statusDisplay.textContent = "Připojování...";
-                break;
-            case WebSocket.OPEN:
-                statusDisplay.textContent = "Připojeno";
-                break;
-            case WebSocket.CLOSING:
-                statusDisplay.textContent = "Odpojování...";
-                break;
-            case WebSocket.CLOSED:
-                statusDisplay.textContent = "Odpojeno";
-                break;
-        }
-    } else {
-        statusDisplay.textContent = "Odpojeno";
-    }
-}
-
-function connectWebSocket() {
-    websocket = new WebSocket("ws://" + location.host + ":81");
-
-    websocket.onopen = () => {
-        console.log("WebSocket připojen.");
-        updateStatusDisplay();
-    };
-
-    websocket.onmessage = (event) => {
-        try {
-            const message = JSON.parse(event.data);
-
-            if (message.type === "position") {
-                currentPosition = message.position;
-                document.getElementById("posvalue").textContent = currentPosition;
-                idrow = 0;
-                sendMessage("loadhistory");
-            } else if (message.type === "history") {
-                const data = message.payload;
-
-                if (
-                    typeof data.temperature === "number" &&
-                    typeof data.humidity === "number" &&
-                    typeof data.pressure === "number" &&
-                    typeof data.hour === "number" &&
-                    typeof data.minute === "number" &&
-                    typeof data.day === "number" &&
-                    typeof data.month === "number" &&
-                    typeof data.year === "number"
-                ) {
-                    const tableBody = document.getElementById("dataBody");
-                    const row = document.createElement("tr");
-                    const date = `${String(data.day).padStart(2, "0")}.${String(data.month).padStart(2, "0")}.${data.year}`;
-                    const time = `${String(data.hour).padStart(2, "0")}:${String(data.minute).padStart(2, "0")}`;
-                    row.innerHTML = `
-                        <td>${++idrow}</td>
-                        <td>${date}</td>
-                        <td>${time}</td>
-                        <td>${data.temperature.toFixed(1)} &deg;C</td>
-                        <td>${data.humidity.toFixed(0)} %</td>
-                        <td>${data.pressure.toFixed(1)} hPa</td>
-                    `;
-                    tableBody.appendChild(row);
-
-                    if (idrow === currentPosition) {
-                        row.classList.add("highlight");
-                    }
-                } else {
-                    console.error("Neplatná data:", data);
-                    alert("Neplatná data přijata ze serveru.");
-                }
-            }
-        } catch (error) {
-            console.error("Chyba při zpracování zprávy WebSocket:", error);
-            alert("Chyba při zpracování dat.");
-        }
-    };
-
-    websocket.onerror = (error) => {
-        console.error("WebSocket chyba:", error);
-        alert("Došlo k chybě WebSocket připojení.");
-    };
-
-    websocket.onclose = () => {
-        console.log("WebSocket spojení bylo uzavřeno.");
-        updateStatusDisplay();
-    };
-
-    updateStatusDisplay();
-}
-
-function disconnectWebSocket() {
-    if (websocket) {
-        websocket.close();
-        websocket = null;
-        updateStatusDisplay();
-    }
-}
-
-function sendMessage(message) {
-    if (websocket && websocket.readyState === WebSocket.OPEN) {
-        websocket.send(message);
-    } else {
-        alert("WebSocket není připojen.");
-    }
-}
-
-buttonToggle.addEventListener("click", () => {
-    if (websocket && websocket.readyState === WebSocket.OPEN) {
-        disconnectWebSocket();
-        buttonToggle.textContent = "Připojit WebSocket";
-    } else {
-        connectWebSocket();
-        buttonToggle.textContent = "Odpojit WebSocket";
-    }
-});
-
-buttonLoadData.addEventListener("click", () => {
-    sendMessage("getPosition");
-});
-
-// Aktualizace stavu při načtení stránky
-document.addEventListener("DOMContentLoaded", () => {
-    updateStatusDisplay();
-});
-        </script>
-
-      </body>
-    </html>
+    </body>
+</html>
     )rawliteral";
     server.send(200, "text/html", html);
   }
@@ -1073,6 +1098,7 @@ void handleHistoryData()
 
 void handleSettings() 
 {
+  Serial.println("Settings page!");
   String html = R"rawliteral(
   <!doctype html>
   <html lang="cs">
@@ -1274,6 +1300,7 @@ bool setDeviceDate(String date)
   return true;
 }
 
+/*
 float parseAltitude(String altitude) {
     altitude.trim();
     if (altitude.length() == 0) {
@@ -1291,27 +1318,39 @@ float parseAltitude(String altitude) {
     }
     return result;
 }
+*/
 
-void setDeviceAltitude(float fAlt)
-{
-  if (fAlt != NAN)
-  {
-    EESet eset = {0};
-    eset = readSettings();
-    eset.altitude = fAlt;
-    writeSettings(eset);
-  }
+float parseAltitude(String altitude) {
+    altitude.trim();
+    Serial.print("Trimovaný vstup: ");
+    Serial.println(altitude);
+    if (altitude.length() == 0) {
+        Serial.println("Řetězec je prázdný!");
+        return NAN;
+    }
+    for (int i = 0; i < altitude.length(); i++) {
+        char c = altitude[i];
+        Serial.print("Kontrola znaku: ");
+        Serial.println(c);
+        if (!(isDigit(c) || c == '.' || (c == '-' && i == 0))) {
+            Serial.println("Neplatný znak detekován!");
+            return NAN;
+        }
+    }
+    float result = altitude.toFloat();
+    Serial.print("Převedeno na float: ");
+    Serial.println(result);
+    if (result == 0.0 && altitude != "0" && altitude != "0.0") {
+        Serial.println("Výsledná hodnota je 0.0, ale vstup není 0 nebo 0.0!");
+        return NAN;
+    }
+    return result;
 }
 
-float getDeviceAltitude()
-{
-  EESet eset = {0};
-  eset = readSettings();
-  return eset.altitude;
-}
 
 void handleApplySettings() 
 {
+  Serial.println("Apply settings!");
   String time = server.arg("time");
   String date = server.arg("date");
   String salt = server.arg("altitude");
@@ -1319,11 +1358,15 @@ void handleApplySettings()
   Serial.println(time);
   Serial.print("Nastavit datum: ");
   Serial.println(date);
-  Serial.print("Nastavit vysku v metrech: ");
-  Serial.println(salt);
+  Serial.print("Nastavit vysku v metrech: '");
+  Serial.print(salt);
+  Serial.println("'");
   setDeviceTime(time);
   setDeviceDate(date);
-  setDeviceAltitude(parseAltitude(salt));
+  float ffAlt = parseAltitude(salt);
+  Serial.print("Parse altitude: ");
+  Serial.print(ffAlt);
+  writeAltitude(ffAlt);
   String sendHtml = R"rawliteral(
   <!DOCTYPE html>
   <html lang="cs">
@@ -1398,6 +1441,7 @@ void handleApplySettings()
 
 
 void handleResetHistory() {
+  Serial.println("Reset history!");
     // Funkce pro smazání historie
   clearHistory();
   clearMinTemp();
@@ -1471,6 +1515,7 @@ void handleResetHistory() {
 }
 
 void handleRestart() {
+  Serial.println("Restart device!");
   // Funkce pro restart zařízení
   String sendHtml = R"rawliteral(
   <!DOCTYPE html>
@@ -1545,6 +1590,7 @@ void handleRestart() {
 
 void handleFactory()
 {
+  Serial.println("Factory set!");
   String sendHtml = R"rawliteral(
   <!DOCTYPE html>
   <html lang="cs">
@@ -1652,17 +1698,18 @@ void webSocketEvent(uint8_t client_num, WStype_t type, uint8_t *payload, size_t 
 {
   if (type == WStype_CONNECTED) 
   {
-    Serial.println("WebS connected");
+    Serial.println("WebSocket connected");
   } 
   else if (type == WStype_DISCONNECTED) 
   {
-    Serial.println("WebS disconnected");
+    Serial.println("WebSocket disconnected");
   }
   if (type == WStype_TEXT) 
   {
     String message = String((char *)payload).substring(0, length);
     if (message == "getPosition") 
     {
+    Serial.println("Get position!");
       int position = readPosition();
       DynamicJsonDocument doc(64);
       doc["type"] = "position";
@@ -1673,6 +1720,7 @@ void webSocketEvent(uint8_t client_num, WStype_t type, uint8_t *payload, size_t 
     } 
     else if (message == "loadhistory") 
     {
+      Serial.println("Load history!");
       sendHistory(client_num);
     }
   }
@@ -1774,18 +1822,32 @@ void setup()
       clearMaxTemp();
       altitude = 250.0f;
       Serial.println("NEW EEPROM settings init!");
+      Serial.print("Size EEPROM: ");
+      Serial.println(EEPROM.length());
+      Serial.print("Altitude: ");
+      Serial.println(altitude);
     }
     else
     {
-      altitude = eset.altitude;
+      Serial.println("EEPROM init OK!");
+      Serial.print("Size EEPROM: ");
+      Serial.println(EEPROM.length());
+      if (isnan(eset.altitude))
+      {
+        altitude = 250.0f;
+        writeAltitude(altitude);
+        Serial.print("Altitude set to default: ");
+        Serial.println(altitude);
+      }
+      else
+      {
+        altitude = eset.altitude;
+        Serial.print("Altitude: ");
+        Serial.println(altitude);
+      }
     }
-    Serial.println("EEPROM init OK!");
-    Serial.print("Size EEPROM: ");
-    Serial.println(EEPROM.length());
     Serial.print("Current position: ");
     Serial.println(eset.position);
-    Serial.print("Current altitude: ");
-    Serial.println(altitude);
     measureTemp.enableDelayed(360000);
     Serial.println("Writter eeprom starting [6min] !");
   }
