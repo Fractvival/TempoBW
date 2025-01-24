@@ -2,12 +2,12 @@
 // Outdoor bluetooth and wifi thermometer
 // PROGMaxi software 2025
 
+#include >EEPROM.h?
 #include <U8g2lib.h>
 #include <RTClib.h>
 #include <DallasTemperature.h>
 #include <TaskScheduler.h>
 #include <OneWire.h>
-#include <EEPROM.h>
 #include <WiFi.h>
 #include <WebServer.h>
 #include <WebSocketsServer.h>
@@ -21,6 +21,7 @@
 #define SCL 22
 #define WIDTH 128
 #define HEIGHT 32
+
 
 BluetoothSerial SerialBT;
 U8G2_SSD1306_128X32_UNIVISION_F_HW_I2C oled(U8G2_R0, SCL, SDA);
@@ -63,7 +64,7 @@ typedef struct EEData
   uint8_t day;
   uint8_t month;
   uint16_t year;  
-};
+}EEData;
 
 typedef struct EESet
 {
@@ -76,7 +77,7 @@ typedef struct EESet
   uint8_t ui8set2;
   uint8_t ui8set3;
   uint16_t crc;  
-};
+}EESet;
 
 
 MMTemp minTemp = {55.5f,0,0,0,1,1,2025};
@@ -235,34 +236,29 @@ void resetSettings()
   eset.crc = 4444;
   EEPROM.put(sizeof(EEData)*245, eset);
   EEPROM.commit();
-  delay(500);
 }
 
 void writeSettings(EESet eset)
 {
-  Serial.println("WRITE SETTINGS:");
-  Serial.print("CRC: ");
-  Serial.println(eset.crc);
-  Serial.print("ALTITUDE: ");
-  Serial.println(eset.altitude);
-  Serial.print("POSITION: ");
-  Serial.println(eset.position);
+  Serial.println("WRITE SETTINGS!");
   EEPROM.put(sizeof(EEData)*245, eset);
   EEPROM.commit();
-  delay(500);
+  delay(5);
+  EESet readEset;
+  EEPROM.get(sizeof(EEData)*245, readEset);
+  Serial.println("Checking writeSettings(): ");
+  Serial.print("crc: ");
+  Serial.println(readEset.crc);
+  Serial.print("position: ");
+  Serial.println(readEset.position);
+  Serial.print("altitude: ");
+  Serial.println(readEset.altitude);
 }
 
 EESet readSettings()
 {
   EESet eset = {0};
   EEPROM.get(sizeof(EEData)*245, eset);
-  Serial.println("READ SETTINGS:");
-  Serial.print("CRC: ");
-  Serial.println(eset.crc);
-  Serial.print("ALTITUDE: ");
-  Serial.println(eset.altitude);
-  Serial.print("POSITION: ");
-  Serial.println(eset.position);
   return eset;
 }
 
@@ -284,23 +280,23 @@ float readAltitude()
 void writePosition(int zerobaseIndex)
 {
   EESet eset = readSettings();
-  delay(50);
+  delay(5);
   eset.position = zerobaseIndex;
   writeSettings(eset);
-  delay(50);
+  delay(5);
 }
 
 void increasePosition()
 {
   EESet eset = readSettings();
-  delay(50);
+  delay(5);
   eset.position++;
   if (eset.position > 239)
   {
     eset.position = 0;
   }
   writeSettings(eset);
-  delay(50);
+  delay(5);
 }
 
 int readPosition()
@@ -326,9 +322,8 @@ void clearMinTemp()
   edata.month = 1;
   edata.year = 2025;
   EEPROM.put(sizeof(EEData)*246, edata);
-  delay(50);
   EEPROM.commit();
-  delay(50);
+  delay(5);
 }
 
 void clearMaxTemp()
@@ -344,25 +339,22 @@ void clearMaxTemp()
   edata.month = 1;
   edata.year = 2025;
   EEPROM.put(sizeof(EEData)*247, edata);
-  delay(50);
   EEPROM.commit();
-  delay(50);
+  delay(5);
 }
 
 void writeMinTemp(EEData edata)
 {
   EEPROM.put(sizeof(EEData)*246, edata);
-  delay(50);
   EEPROM.commit();
-  delay(50);
+  delay(5);
 }
 
 void writeMaxTemp(EEData edata)
 {
   EEPROM.put(sizeof(EEData)*247, edata);
-  delay(50);
   EEPROM.commit();
-  delay(50);
+  delay(5);
 }
 
 EEData readMinTemp()
@@ -383,7 +375,7 @@ void writeHistory()
 {
   DateTime now = rtc.now();
   int pos = readPosition();
-  delay(50);
+  delay(5);
   EEData edata = {0};
   edata.temperature = temperature;
   edata.processorTemperature = deviceTemp;
@@ -395,9 +387,9 @@ void writeHistory()
   edata.month = now.month();
   edata.year = now.year();
   writeToEprom(pos, edata);
-  delay(50);
+  delay(5);
   increasePosition();
-  delay(50);
+  delay(5);
   EEData eminTemp = {0};
   eminTemp.temperature = minTemp.temperature;
   eminTemp.processorTemperature = deviceTemp;
@@ -409,7 +401,7 @@ void writeHistory()
   eminTemp.month = minTemp.month;
   eminTemp.year = minTemp.year;
   writeMinTemp(eminTemp);
-  delay(50);
+  delay(5);
   EEData emaxTemp = {0};
   emaxTemp.temperature = maxTemp.temperature;
   emaxTemp.processorTemperature = deviceTemp;
@@ -421,7 +413,7 @@ void writeHistory()
   emaxTemp.month = maxTemp.month;
   emaxTemp.year = maxTemp.year;
   writeMaxTemp(emaxTemp);
-  delay(50);
+  delay(5);
   Serial.println("Write history!");
 }
 
@@ -1320,28 +1312,24 @@ float parseAltitude(String altitude) {
 }
 */
 
-float parseAltitude(String altitude) {
+float parseAltitude(String altitude) 
+{
     altitude.trim();
-    Serial.print("Trimovaný vstup: ");
-    Serial.println(altitude);
-    if (altitude.length() == 0) {
-        Serial.println("Řetězec je prázdný!");
+    if (altitude.length() == 0) 
+    {
         return NAN;
     }
-    for (int i = 0; i < altitude.length(); i++) {
+    for (int i = 0; i < altitude.length(); i++) 
+    {
         char c = altitude[i];
-        Serial.print("Kontrola znaku: ");
-        Serial.println(c);
-        if (!(isDigit(c) || c == '.' || (c == '-' && i == 0))) {
-            Serial.println("Neplatný znak detekován!");
+        if (!(isDigit(c) || c == '.' || (c == '-' && i == 0))) 
+        {
             return NAN;
         }
     }
     float result = altitude.toFloat();
-    Serial.print("Převedeno na float: ");
-    Serial.println(result);
-    if (result == 0.0 && altitude != "0" && altitude != "0.0") {
-        Serial.println("Výsledná hodnota je 0.0, ale vstup není 0 nebo 0.0!");
+    if (result == 0.0 && altitude != "0" && altitude != "0.0") 
+    {
         return NAN;
     }
     return result;
@@ -1363,10 +1351,7 @@ void handleApplySettings()
   Serial.println("'");
   setDeviceTime(time);
   setDeviceDate(date);
-  float ffAlt = parseAltitude(salt);
-  Serial.print("Parse altitude: ");
-  Serial.print(ffAlt);
-  writeAltitude(ffAlt);
+  writeAltitude(parseAltitude(salt));
   String sendHtml = R"rawliteral(
   <!DOCTYPE html>
   <html lang="cs">
@@ -1584,8 +1569,10 @@ void handleRestart() {
   </html>    
   )rawliteral";
   server.send(200, "text/html", sendHtml);
-  ESP.restart();
+  //ESP.restart();
+  esp_restart();
 }
+
 
 
 void handleFactory()
@@ -1813,6 +1800,7 @@ void setup()
   }
   else
   {
+    delay(1000);
     EESet eset = readSettings();
     if (eset.crc != 4444)
     {
