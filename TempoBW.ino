@@ -2,7 +2,7 @@
 // Outdoor bluetooth and wifi thermometer
 // PROGMaxi software 2025
 
-#include >EEPROM.h?
+#include <LittleFS.h>
 #include <U8g2lib.h>
 #include <RTClib.h>
 #include <DallasTemperature.h>
@@ -38,9 +38,8 @@ int clientCount = 0;
 unsigned long previousMillis = 0;
 unsigned long interval = 5000;
 unsigned int deltaDraw = 0;
-
-
 Scheduler runner;
+
 
 struct MMTemp 
 {
@@ -125,7 +124,6 @@ void ShowData(String title, String text)
   int strTitleHeight = oled.getMaxCharHeight();
   int titleY = strTitleHeight;
   oled.drawStr((WIDTH - strTitleWidth) / 2, titleY, title.c_str());
-  //oled.sendBuffer();
   oled.setFont(u8g2_font_helvR14_tf);
   int strTextWidth = oled.getStrWidth(text.c_str());
   int strTextHeight = oled.getMaxCharHeight();
@@ -205,215 +203,250 @@ float calculateSeaLevelPressure(float pressure, float altitude)
   return seaLevelPressure / 100.0;
 }
 
-void clearHistory()
+bool writeToEprom(int index, EEData edata) 
 {
-  EEData edata = {0};
-  for(int i = 0; i < 240; i++)
-  {
-    EEPROM.put(sizeof(EEData)*i, edata);
-    EEPROM.commit();    
-  }
+    String filename = "/history_" + String(index) + ".dat";
+    File file = LittleFS.open(filename, "w");
+    if (!file) {
+        Serial.println("WF: Error opening file for writing!");
+        return false;
+    }
+    size_t bytesWritten = file.write((uint8_t*)&edata, sizeof(EEData));
+    file.close();
+    if (bytesWritten != sizeof(EEData)) {
+        Serial.println("WF: Error writing data to file!");
+        return false;
+    }
+    Serial.println("WF: Data successfully written to: " + filename);
+    return true;
 }
 
-void writeToEprom(int zerobaseIndex, EEData edata)
+bool readFromEprom(int index, EEData &edata) 
 {
-  EEPROM.put(sizeof(EEData)*zerobaseIndex, edata);
-  EEPROM.commit();
+    String filename = "/history_" + String(index) + ".dat";
+    File file = LittleFS.open(filename, "r");
+    if (!file) {
+        Serial.println("RF: Error opening file for reading!");
+        return false;
+    }
+    size_t bytesRead = file.read((uint8_t*)&edata, sizeof(EEData));
+    file.close();
+    if (bytesRead != sizeof(EEData)) {
+        Serial.println("RF: Error reading data from file!");
+        return false;
+    }
+    Serial.println("RF: Data successfully loaded from:" + filename);
+    return true;
 }
 
-EEData readFromEprom(uint zerobaseIndex)
+void clearHistory() 
 {
-  EEData edata = {0};
-  EEPROM.get(sizeof(EEData)*zerobaseIndex, edata);
-  return edata;
+    for (int i = 0; i < 260; i++) 
+    {
+        String filename = "/history_" + String(i) + ".dat";
+        if (LittleFS.exists(filename)) 
+        {
+            LittleFS.remove(filename);
+            Serial.println("File deleted: " + filename);
+        }
+    }
+    Serial.println("History has been deleted.");
 }
 
-void resetSettings()
+bool writeSettings(EESet eset) 
 {
-  EESet eset = {0};
-  eset.altitude = 250.0f;
-  eset.position = 255;
-  eset.crc = 4444;
-  EEPROM.put(sizeof(EEData)*245, eset);
-  EEPROM.commit();
+    File file = LittleFS.open("/settings.dat", "w");
+    if (!file) {
+        Serial.println("Error opening file to write settings!");
+        return false;
+    }
+    size_t bytesWritten = file.write((uint8_t*)&eset, sizeof(EESet));
+    file.close();
+    return bytesWritten == sizeof(EESet);
 }
 
-void writeSettings(EESet eset)
+EESet readSettings() 
 {
-  Serial.println("WRITE SETTINGS!");
-  EEPROM.put(sizeof(EEData)*245, eset);
-  EEPROM.commit();
-  delay(5);
-  EESet readEset;
-  EEPROM.get(sizeof(EEData)*245, readEset);
-  Serial.println("Checking writeSettings(): ");
-  Serial.print("crc: ");
-  Serial.println(readEset.crc);
-  Serial.print("position: ");
-  Serial.println(readEset.position);
-  Serial.print("altitude: ");
-  Serial.println(readEset.altitude);
+    EESet eset = {0};
+    File file = LittleFS.open("/settings.dat", "r");
+    if (!file) {
+        Serial.println("Error opening file to read settings!");
+        return eset;
+    }
+    file.read((uint8_t*)&eset, sizeof(EESet));
+    file.close();
+    return eset;
 }
 
-EESet readSettings()
+void resetSettings() 
 {
-  EESet eset = {0};
-  EEPROM.get(sizeof(EEData)*245, eset);
-  return eset;
+    EESet eset = {0};
+    eset.altitude = 250.0f;
+    eset.position = 255;
+    eset.crc = 4444;
+    writeSettings(eset);
+    Serial.println("The settings have been reset.");
 }
 
-void writeAltitude(float altitude)
+void writeAltitude(float altitude) 
 {
-  EESet eset = {0};
-  eset = readSettings();
-  eset.altitude = altitude;
-  writeSettings(eset);
+    EESet eset = readSettings();
+    eset.altitude = altitude;
+    writeSettings(eset);
 }
 
-float readAltitude()
+float readAltitude() 
 {
-  EESet eset = {0};
-  eset = readSettings();
-  return eset.altitude;
+    EESet eset = readSettings();
+    return eset.altitude;
 }
 
-void writePosition(int zerobaseIndex)
+void writePosition(int index) 
 {
-  EESet eset = readSettings();
-  delay(5);
-  eset.position = zerobaseIndex;
-  writeSettings(eset);
-  delay(5);
+    EESet eset = readSettings();
+    eset.position = index;
+    writeSettings(eset);
 }
 
-void increasePosition()
+void increasePosition() 
 {
-  EESet eset = readSettings();
-  delay(5);
-  eset.position++;
-  if (eset.position > 239)
-  {
-    eset.position = 0;
-  }
-  writeSettings(eset);
-  delay(5);
+    EESet eset = readSettings();
+    eset.position++;
+    if (eset.position > 239) 
+    {
+        eset.position = 0;
+    }
+    writeSettings(eset);
 }
 
-int readPosition()
+int readPosition() 
 {
-  EESet eset = readSettings();
-  if (eset.position == 255)
-  {
-    return 0;
-  }
-  return eset.position;
+    EESet eset = readSettings();
+    return eset.position;
 }
 
-void clearMinTemp()
+void clearMinTemp() 
 {
-  EEData edata = {0};
-  edata.temperature = 55.5f;
-  edata.processorTemperature = 0.0f;
-  edata.humidity = 0.0f;
-  edata.pressure = 0.0f;
-  edata.hour = 0;
-  edata.minute = 0;
-  edata.day = 1;
-  edata.month = 1;
-  edata.year = 2025;
-  EEPROM.put(sizeof(EEData)*246, edata);
-  EEPROM.commit();
-  delay(5);
+    EEData edata = {0};
+    edata.temperature = 55.5f;
+    LittleFS.remove("/minTemp.dat");
+    writeMinTemp(edata);
 }
 
-void clearMaxTemp()
+void clearMaxTemp() 
 {
-  EEData edata = {0};
-  edata.temperature = -55.5f;
-  edata.processorTemperature = 0.0f;
-  edata.humidity = 0.0f;
-  edata.pressure = 0.0f;
-  edata.hour = 0;
-  edata.minute = 0;
-  edata.day = 1;
-  edata.month = 1;
-  edata.year = 2025;
-  EEPROM.put(sizeof(EEData)*247, edata);
-  EEPROM.commit();
-  delay(5);
+    EEData edata = {0};
+    edata.temperature = -55.5f;
+    LittleFS.remove("/maxTemp.dat");
+    writeMaxTemp(edata);
 }
 
-void writeMinTemp(EEData edata)
+void writeMinTemp(EEData edata) 
 {
-  EEPROM.put(sizeof(EEData)*246, edata);
-  EEPROM.commit();
-  delay(5);
+    File file = LittleFS.open("/minTemp.dat", "w");
+    if (file) 
+    {
+        file.write((uint8_t*)&edata, sizeof(EEData));
+        file.close();
+    }
+    else 
+    {
+        Serial.println("Error while writing minimum temperature!");
+    }
 }
 
-void writeMaxTemp(EEData edata)
+void writeMaxTemp(EEData edata) 
 {
-  EEPROM.put(sizeof(EEData)*247, edata);
-  EEPROM.commit();
-  delay(5);
+    File file = LittleFS.open("/maxTemp.dat", "w");
+    if (file) 
+    {
+        file.write((uint8_t*)&edata, sizeof(EEData));
+        file.close();
+    }
+    else
+    {
+        Serial.println("Error while writing maximum temperature!");
+    }
 }
 
-EEData readMinTemp()
+EEData readMinTemp() 
 {
-  EEData edata = {0};
-  EEPROM.get(sizeof(EEData)*246, edata);
-  return edata;
+    EEData edata = {0};
+    File file = LittleFS.open("/minTemp.dat", "r");
+    if (file) 
+    {
+        file.read((uint8_t*)&edata, sizeof(EEData));
+        file.close();
+    }
+    else
+    {
+        Serial.println("Error reading minimum temperature!");
+    }
+    return edata;
 }
 
-EEData readMaxTemp()
+EEData readMaxTemp() 
 {
-  EEData edata = {0};
-  EEPROM.get(sizeof(EEData)*247, edata);
-  return edata;
+    EEData edata = {0};
+    File file = LittleFS.open("/maxTemp.dat", "r");
+    if (file) 
+    {
+        file.read((uint8_t*)&edata, sizeof(EEData));
+        file.close();
+    }
+    else
+    {
+        Serial.println("Error reading maximum temperature!");
+    }
+    return edata;
+}
+
+void clearNamespace() 
+{
+    LittleFS.format();
+    Serial.println("The file system has been formatted.");
 }
 
 void writeHistory()
 {
   DateTime now = rtc.now();
+  increasePosition();
   int pos = readPosition();
-  delay(5);
   EEData edata = {0};
   edata.temperature = temperature;
   edata.processorTemperature = deviceTemp;
   edata.humidity = humidity;
-  edata.pressure = pressure;
+  edata.pressure = calculateSeaLevelPressure(pressure,altitude);//pressure;
   edata.hour = now.hour();
   edata.minute = now.minute();
   edata.day = now.day();
   edata.month = now.month();
   edata.year = now.year();
   writeToEprom(pos, edata);
-  delay(5);
-  increasePosition();
-  delay(5);
+  Serial.print("Current position: ");
+  Serial.println(pos);
   EEData eminTemp = {0};
   eminTemp.temperature = minTemp.temperature;
   eminTemp.processorTemperature = deviceTemp;
   eminTemp.humidity = humidity;
-  eminTemp.pressure = pressure;
+  eminTemp.pressure = calculateSeaLevelPressure(pressure,altitude);
   eminTemp.hour = minTemp.hour;
   eminTemp.minute = minTemp.minute;
   eminTemp.day = minTemp.day;
   eminTemp.month = minTemp.month;
   eminTemp.year = minTemp.year;
   writeMinTemp(eminTemp);
-  delay(5);
   EEData emaxTemp = {0};
   emaxTemp.temperature = maxTemp.temperature;
   emaxTemp.processorTemperature = deviceTemp;
   emaxTemp.humidity = humidity;
-  emaxTemp.pressure = pressure;
+  emaxTemp.pressure = calculateSeaLevelPressure(pressure,altitude);
   emaxTemp.hour = maxTemp.hour;
   emaxTemp.minute = maxTemp.minute;
   emaxTemp.day = maxTemp.day;
   emaxTemp.month = maxTemp.month;
   emaxTemp.year = maxTemp.year;
   writeMaxTemp(emaxTemp);
-  delay(5);
   Serial.println("Write history!");
 }
 
@@ -445,6 +478,7 @@ void handleRoot()
                       document.getElementById("devTime").innerText = data.devTime;
                       document.getElementById("devDate").innerText = data.devDate;
                       document.getElementById("devTemp").innerText = `${data.devTemp} °C`;
+                      document.getElementById("altitude").innerText = `${data.altitude} m.n.m`;
                       document.getElementById("clients").innerText = data.clientCount;
                       document.getElementById("minimum").innerText = `${data.minTemperature} °C`;
                       document.getElementById("minimumTime").innerText = 
@@ -531,7 +565,7 @@ void handleRoot()
                   text-transform: uppercase;
               }
               .table-cell {
-                  font-size: 18px;
+                  font-size: 16px;
                   color: #ffffff;
                   font-family: "Lucida Console";
                   text-align: center;
@@ -549,12 +583,8 @@ void handleRoot()
               <button id="history" onclick="location.href='/history'">Historie</button>
               <button id="settings" onclick="location.href='/settings'">Nastavení</button>
           </div>
-          <div class="center">
-              <h1>TempoBW</h1>
-          </div>
-          <div class="center">
-              <h2>Venkovní BT+WIFI teploměr</h2>
-          </div>
+          <br>
+          <br>
           <table id="maintable" align="center" width="85%" cellspacing="5" cellpadding="5" border="1">
               <tbody>
                   <tr>
@@ -606,6 +636,10 @@ void handleRoot()
                       <td class="table-cell" id="devTemp">Načítám...</td>
                   </tr>
                   <tr>
+                      <td class="table-header">Nadmořská výška</td>
+                      <td class="table-cell" id="altitude">Načítám...</td>
+                  </tr>
+                  <tr>
                       <td class="table-header">Počet klientů</td>
                       <td class="table-cell" id="clients">Načítám...</td>
                   </tr>
@@ -622,12 +656,6 @@ void handleRoot()
   )rawliteral";
   server.send(200, "text/html", html);
 }
-
-String history = R"rawjson(
-[
-  {"apos": 0, "time": "00:00", "date": "01/01/2025", "temperature": 0.0, "pressure": 0.0, "humidity": 0.0, "devtemperature": 0.0},
-]
-)rawjson";
 
 
 void handleHistory() 
@@ -748,344 +776,336 @@ void handleHistory()
   else
   {
     String html = R"rawliteral(
-<!doctype html>
-<html lang="cs">
-    <head>
-        <meta charset="UTF-8" />
-        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        <title>TempoBW - Historie</title>
-        <style>
-            .center {
-                margin: 2px auto;
-                width: 80%;
-                border: 0px solid black;
-                text-align: center;
-            }
-            .menu {
-                display: flex;
-                justify-content: center;
-                gap: 15px;
-            }
-            .menu button {
-                padding: 15px 30px;
-                font-size: 15px;
-                border: none;
-                border-radius: 5px;
-                cursor: pointer;
-                transition: all 0.3s ease;
-            }
-            .menu button#home {
-                background-color: #4caf50;
-                color: white;
-            }
-            .menu button#loadData {
-                background-color: #4caf50;
-                color: white;
-            }
-            .menu button#history {
-                background-color: #2196f3;
-                color: white;
-            }
-            .menu button#settings {
-                background-color: #f44336;
-                color: white;
-            }
-            .menu button:hover {
-                opacity: 0.8;
-            }
-            h1 {
-                color: #4caf50;
-                font-size: 26px;
-                font-family: "Lucida Console", serif;
-                text-align: center;
-                text-transform: uppercase;
-            }
-            h2 {
-                color: #07efcc;
-                font-size: 15px;
-                font-family: "Lucida Console", serif;
-                text-align: center;
-                text-transform: uppercase;
-            }
-            h5 {
-                color: #f44336;
-                font-size: 12px;
-                font-family: "Lucida Console", serif;
-                text-align: center;
-                text-transform: uppercase;
-            }
-            table {
-                width: 80%;
-                border-collapse: collapse;
-                margin: 10px auto;
-                justify-content: center;
-            }
-            th,
-            td {
-                border: 1px solid #ddd;
-                padding: 8px;
-                text-align: center;
-                width: auto;
-            }
-            td {
-                background-color: #000000;
-                color: #ffffff;
-                font-family: "Lucida Console", serif;
-                font-size: 12px;
-            }
-            th {
-                background-color: #4caf50;
-                color: white;
-                font-size: 12px;
-            }
-            tr:nth-child(even) td {
-                background-color: #1a1a1a; /* Lehce světlejší černá */
-            }
-            .apos-label {
-                font-size: 16px;
-                color: #4caf50;
-                font-weight: bold;
-                font-family: "Lucida Console", serif;
-            }
-            .apos-value {
-                font-size: 20px;
-                color: #ffffff;
-                background-color: #000000;
-                font-weight: bold;
-                font-family: "Lucida Console", serif;
-                width: auto;
-                padding: 5px 15px;
-                border-radius: 5px;
-            }
-            .tooglebutton {
-                padding: 10px 20px;
-                font-size: 12px;
-                border: none;
-                border-radius: 5px;
-                cursor: pointer;
-                transition: all 0.3s ease;
-            }
-        </style>
-    <script>
-        let websocket = null;
-        let currentPosition = 0;
-        let idrow = 0;
-        const buttonToggle = document.getElementById("toggleWebSocket");
-        const buttonLoadData = document.getElementById("loadData");
-        const statusDisplay = document.getElementById("webSocketStatus");
-
-        document.addEventListener("click", (event) => {
-            // Detekujeme kliknutí na tlačítko s atributem data-href
-            if (event.target.tagName === "BUTTON" && event.target.hasAttribute("data-href")) {
-                const targetHref = event.target.getAttribute("data-href");
-
-                // Kontrola, zda je WebSocket stále připojen
-                if (websocket && websocket.readyState === WebSocket.OPEN) {
-                    event.preventDefault(); // Zastavíme přechod na jinou stránku
-                    alert("WebSocket je stále připojen. Nejprve ho odpojte."); // Upozornění uživateli
-                } else {
-                    // Pokud není WebSocket připojen, přejdeme na cílovou stránku
-                    window.location.href = targetHref;
+    <!doctype html>
+    <html lang="cs">
+        <head>
+            <meta charset="UTF-8" />
+            <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+            <title>TempoBW - Historie</title>
+            <style>
+                .center {
+                    margin: 2px auto;
+                    width: 80%;
+                    border: 0px solid black;
+                    text-align: center;
                 }
-            }
-        });        
-
-        function updateStatusDisplay() {
-            if (websocket) {
-                switch (websocket.readyState) {
-                    case WebSocket.CONNECTING:
-                        statusDisplay.textContent = "Připojování...";
-                        break;
-                    case WebSocket.OPEN:
-                        statusDisplay.textContent = "Připojeno";
-                        break;
-                    case WebSocket.CLOSING:
-                        statusDisplay.textContent = "Odpojuji...";
-                        break;
-                    case WebSocket.CLOSED:
-                        statusDisplay.textContent = "Odpojeno";
-                        break;
+                .menu {
+                    display: flex;
+                    justify-content: center;
+                    gap: 15px;
                 }
-            } else {
-                statusDisplay.textContent = "Odpojeno";
-            }
-        }
+                .menu button {
+                    padding: 15px 30px;
+                    font-size: 15px;
+                    border: none;
+                    border-radius: 5px;
+                    cursor: pointer;
+                    transition: all 0.3s ease;
+                }
+                .menu button#home {
+                    background-color: #4caf50;
+                    color: white;
+                }
+                .menu button#loadData {
+                    background-color: #4caf50;
+                    color: white;
+                }
+                .menu button#history {
+                    background-color: #2196f3;
+                    color: white;
+                }
+                .menu button#settings {
+                    background-color: #f44336;
+                    color: white;
+                }
+                .menu button:hover {
+                    opacity: 0.8;
+                }
+                h1 {
+                    color: #4caf50;
+                    font-size: 26px;
+                    font-family: "Lucida Console", serif;
+                    text-align: center;
+                    text-transform: uppercase;
+                }
+                h2 {
+                    color: #07efcc;
+                    font-size: 15px;
+                    font-family: "Lucida Console", serif;
+                    text-align: center;
+                    text-transform: uppercase;
+                }
+                h5 {
+                    color: #f44336;
+                    font-size: 12px;
+                    font-family: "Lucida Console", serif;
+                    text-align: center;
+                    text-transform: uppercase;
+                }
+                table {
+                    width: 80%;
+                    border-collapse: collapse;
+                    margin: 10px auto;
+                    justify-content: center;
+                }
+                th,
+                td {
+                    border: 1px solid #ddd;
+                    padding: 8px;
+                    text-align: center;
+                    width: auto;
+                }
+                td {
+                    background-color: #000000;
+                    color: #ffffff;
+                    font-family: "Lucida Console", serif;
+                    font-size: 12px;
+                }
+                th {
+                    background-color: #4caf50;
+                    color: white;
+                    font-size: 12px;
+                }
+                tr:nth-child(even) td {
+                    background-color: #063406;
+                }
+                tr:nth-child(odd) td {
+                    background-color: #043f5a;
+                }
+                tr.selected td {
+                    background-color: #088e08 !important;
+                }                
+                .apos-label {
+                    font-size: 16px;
+                    color: #4caf50;
+                    font-weight: bold;
+                    font-family: "Lucida Console", serif;
+                }
+                .apos-value {
+                    font-size: 20px;
+                    color: #ffffff;
+                    background-color: #000000;
+                    font-weight: bold;
+                    font-family: "Lucida Console", serif;
+                    width: auto;
+                    padding: 5px 15px;
+                    border-radius: 5px;
+                }
+                .tooglebutton {
+                    padding: 10px 20px;
+                    font-size: 12px;
+                    border: none;
+                    border-radius: 5px;
+                    cursor: pointer;
+                    transition: all 0.3s ease;
+                }
+            </style>
+            <script>
+                let websocket = null;
+                let currentPosition = 0;
+                let idrow = 0;
 
-        function connectWebSocket() {
-            websocket = new WebSocket("ws://" + location.host + ":81");
+                document.addEventListener("DOMContentLoaded", () => {
+                    // Inicializace prvků po načtení DOM
+                    const buttonToggle = document.getElementById("toggleWebSocket");
+                    const buttonLoadData = document.getElementById("loadData");
+                    const statusDisplay = document.getElementById("webSocketStatus");
+                    // const positionValue = document.getElementById("posvalue");
 
-            websocket.onopen = () => {
-                console.log("WebSocket připojen.");
-                updateStatusDisplay();
-            };
-
-            websocket.onmessage = (event) => {
-                const message = JSON.parse(event.data);
-                if (message.type === "position") {
-                    currentPosition = message.position;
-                    idrow = 0;
-                    sendMessage("loadhistory");
-                } else if (message.type === "history") {
-                    const data = message.payload;
-                    if (data && typeof data.temperature === "number") {
-                        const tableBody = document.getElementById("dataBody");
-                        const row = document.createElement("tr");
-                        const date = `${String(data.day).padStart(2, "0")}.${String(data.month).padStart(2, "0")}.${data.year}`;
-                        const time = `${String(data.hour).padStart(2, "0")}:${String(data.minute).padStart(2, "0")}`;
-                        row.innerHTML = `
-                            <td>${++idrow}</td>
-                            <td>${date}</td>
-                            <td>${time}</td>
-                            <td>${data.temperature.toFixed(1)} &deg;C</td>
-                            <td>${data.humidity.toFixed(0)} %</td>
-                            <td>${(data.pressure / 100).toFixed(0)} hPa</td>
-                        `;
-                        tableBody.appendChild(row);
+                    // Funkce pro aktualizaci stavu WebSocket
+                    function updateStatusDisplay() {
+                        if (websocket) {
+                            switch (websocket.readyState) {
+                                case WebSocket.CONNECTING:
+                                    statusDisplay.textContent = "Připojování...";
+                                    break;
+                                case WebSocket.OPEN:
+                                    statusDisplay.textContent = "Připojeno";
+                                    break;
+                                case WebSocket.CLOSING:
+                                    statusDisplay.textContent = "Odpojuji...";
+                                    break;
+                                case WebSocket.CLOSED:
+                                    statusDisplay.textContent = "Odpojeno";
+                                    break;
+                            }
+                        } else {
+                            statusDisplay.textContent = "Odpojeno";
+                        }
                     }
-                }
-            };
 
-            websocket.onclose = () => {
-                console.log("WebSocket uzavřen.");
-                updateStatusDisplay();
-            };
+                    // Připojení WebSocket
+                    function connectWebSocket() {
+                        websocket = new WebSocket("ws://" + location.host + ":81");
 
-            websocket.onerror = (error) => {
-                console.error("WebSocket chyba:", error);
-                updateStatusDisplay();
-            };
-        }
+                        websocket.onopen = () => {
+                            console.log("WebSocket připojen.");
+                            updateStatusDisplay();
+                        };
 
-        function disconnectWebSocket(callback) {
-            if (websocket && websocket.readyState === WebSocket.OPEN) {
-                websocket.close();
-                websocket.onclose = () => {
-                    updateStatusDisplay();
-                    if (callback) callback();
-                };
-            } else if (callback) {
-                callback();
-            }
-        }
+                        websocket.onmessage = (event) => {
+                            const message = JSON.parse(event.data);
+                            if (message.type === "closeSocket")
+                            {
+                              disconnectWebSocket(() => {
+                                  buttonToggle.textContent = "Připojit WebSocket";
+                              });
+                            }
+                            else if (message.type === "position") 
+                            {
+                              currentPosition = message.position;
+                              // positionValue.textContent = currentPosition;
+                              idrow = 0;
+                              sendMessage("loadhistory");
+                            }
+                            else if (message.type === "history") 
+                            {
+                              const data = message.payload;
+                              if (data && typeof data.temperature === "number") {
+                                  const tableBody = document.getElementById("dataBody");
+                                  const row = document.createElement("tr");
+                                  const date = `${String(data.day).padStart(2, "0")}.${String(data.month).padStart(2, "0")}.${data.year}`;
+                                  const time = `${String(data.hour).padStart(2, "0")}:${String(data.minute).padStart(2, "0")}`;
+                                  row.innerHTML = `
+                                              <td>${++idrow}</td>
+                                              <td>${date}</td>
+                                              <td>${time}</td>
+                                              <td>${data.temperature.toFixed(1)} &deg;C</td>
+                                              <td>${data.humidity.toFixed(1)} %</td>
+                                              <td>${data.pressure.toFixed(2)} hPa</td>
+                                          `;
 
-        function sendMessage(message) {
-            if (websocket && websocket.readyState === WebSocket.OPEN) {
-                websocket.send(message);
-            } else {
-                alert("WebSocket není připojen.");
-            }
-        }
+                                  if (idrow === currentPosition) {
+                                      row.classList.add("selected");
+                                  }
+                                  tableBody.appendChild(row);
+                                }
+                            }
+                        };
 
-        buttonToggle.addEventListener("click", () => {
-            if (websocket && websocket.readyState === WebSocket.OPEN) {
-                disconnectWebSocket(() => {
-                    buttonToggle.textContent = "Připojit WebSocket";
+                        websocket.onclose = () => {
+                            console.log("WebSocket uzavřen.");
+                            updateStatusDisplay();
+                        };
+
+                        websocket.onerror = (error) => {
+                            console.error("WebSocket chyba:", error);
+                            updateStatusDisplay();
+                        };
+                    }
+
+                    // Odpojení WebSocket
+                    function disconnectWebSocket(callback) {
+                        if (websocket && websocket.readyState === WebSocket.OPEN) {
+                            websocket.close();
+                            websocket.onclose = () => {
+                                updateStatusDisplay();
+                                if (callback) callback();
+                            };
+                        } else if (callback) {
+                            callback();
+                        }
+                    }
+
+                    // Odeslání zprávy
+                    function sendMessage(message) {
+                        if (websocket && websocket.readyState === WebSocket.OPEN) {
+                            websocket.send(message);
+                        } else {
+                            alert("WebSocket není připojen.");
+                        }
+                    }
+
+                    // Event listener pro tlačítko "Připojit/Odpojit"
+                    buttonToggle.addEventListener("click", () => {
+                        if (websocket && websocket.readyState === WebSocket.OPEN) {
+                            disconnectWebSocket(() => {
+                                buttonToggle.textContent = "Připojit WebSocket";
+                            });
+                        } else {
+                            connectWebSocket();
+                            buttonToggle.textContent = "Odpojit WebSocket";
+                        }
+                    });
+
+                    // Event listener pro tlačítko "Načíst data"
+                    buttonLoadData.addEventListener("click", () => {
+                        sendMessage("getPosition");
+                    });
+
+                    // Kliknutí na tlačítka s atributem data-href
+                    document.addEventListener("click", (event) => {
+                        if (event.target.tagName === "BUTTON" && event.target.hasAttribute("data-href")) {
+                            const targetHref = event.target.getAttribute("data-href");
+
+                            // Kontrola, zda je WebSocket stále připojen
+                            if (websocket && websocket.readyState === WebSocket.OPEN) {
+                                event.preventDefault(); // Zastavíme přechod na jinou stránku
+                                alert("WebSocket je stále připojen. Nejprve ho odpojte."); // Upozornění uživateli
+                            } else {
+                                // Pokud není WebSocket připojen, přejdeme na cílovou stránku
+                                window.location.href = targetHref;
+                            }
+                        }
+                    });
                 });
-            } else {
-                connectWebSocket();
-                buttonToggle.textContent = "Odpojit WebSocket";
-            }
-        });
-
-        buttonLoadData.addEventListener("click", () => {
-            sendMessage("getPosition");
-        });
-
-    </script>
-
-    </head>
-    <body style="background-color: #212f3c">
-        <div class="menu">
-            <button id="home" data-href="/">Domů</button>
-            <button id="history" data-href="/history">Historie</button>
-            <button id="settings" data-href="/settings">Nastavení</button>
-        </div>
-        <div class="center">
-            <br />
-            <p><span class="apos-label">AKTUÁLNÍ POZICE:</span> <span class="apos-value" id="posvalue">0</span></p>
-            <br />
-            <div>
-                <button class="tooglebutton" id="toggleWebSocket">Připojit WebSocket</button>
-                <br />
-                <br />
-                <span class="apos-value" id="webSocketStatus">Odpojeno</span>
+            </script>
+        </head>
+        <body style="background-color: #212f3c">
+            <div class="menu">
+                <button id="home" data-href="/">Domů</button>
+                <button id="history" data-href="/history">Historie</button>
+                <button id="settings" data-href="/settings">Nastavení</button>
+            </div>
+            <div class="center">
+                <br>
+                <br>
+                <br>
+                <div>
+                    <button class="tooglebutton" id="toggleWebSocket">Připojit WebSocket</button>
+                    <br />
+                    <br />
+                    <span class="apos-value" id="webSocketStatus">Odpojeno</span>
+                </div>
+                <br>
+                <br>
+            </div>
+            <div class="menu">
+                <button id="loadData">Načíst data</button>
             </div>
             <br />
-        </div>
-        <div class="menu">
-            <button id="loadData">Načíst data</button>
-        </div>
-        <br />
-        <br />
-        <table>
-            <thead>
-                <tr>
-                    <th>#</th>
-                    <th>Datum</th>
-                    <th>Čas</th>
-                    <th>Teplota</th>
-                    <th>Vlhkost</th>
-                    <th>Tlak</th>
-                </tr>
-            </thead>
-            <tbody id="dataBody">
-                <!-- Data budou dynamicky načtena sem -->
-            </tbody>
-        </table>
-        <div class="center">
             <br />
-            <h5>PROGMaxi software 2025</h5>
-            <br />
-            <br />
-        </div>
-    </body>
-</html>
+            <table>
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>Datum</th>
+                        <th>Čas</th>
+                        <th>Teplota</th>
+                        <th>Vlhkost</th>
+                        <th>Tlak</th>
+                    </tr>
+                </thead>
+                <tbody id="dataBody">
+                    <!-- Data budou dynamicky načtena sem -->
+                </tbody>
+            </table>
+            <div class="center">
+                <br />
+                <h5>PROGMaxi software 2025</h5>
+                <br />
+                <br />
+            </div>
+        </body>
+    </html>
     )rawliteral";
     server.send(200, "text/html", html);
   }
 }
 
-  String zeroPad(int number) 
-  {
-    return (number < 10 ? "0" : "") + String(number);
-  }
-
-
-  String createHistory() 
-  {
-    const int recordCount = 240; // Počet záznamů
-    EEData data; // Buffer pro všech 240 záznamů
-    // Načtení všech záznamů naráz
-    //EEPROM.get(0, buffer); // Předpokládáme, že data začínají od adresy 0
-    int currentPosition = readPosition() + 1; // Aktuální pozice
-    String history = "[";
-
-    for (int i = 0; i < recordCount; i++) {
-      //EEData data = buffer[i];
-      EEPROM.get(sizeof(EEData)*i, data);
-      history += "{";
-      history += String(currentPosition) + ","; // Pozice záznamu
-      history += "\"" + zeroPad(data.hour) + ":" + zeroPad(data.minute) + "\","; // Čas
-      history += "\"" + zeroPad(data.day) + "/" + zeroPad(data.month) + "/" + String(data.year) + "\","; // Datum
-      history += "\"" + String(data.temperature, 1); // Teplota
-      history += "}";
-      if (i < recordCount - 1) {
-        history += ","; // Oddělení záznamů čárkou
-      }
-    }
-
-    history += "]";
-    Serial.print("Size data: ");
-    Serial.println(sizeof(history));
-    Serial.println(history);
-    return history;
-  }
-
-
-void handleHistoryData() 
+String zeroPad(int number) 
 {
-  history = createHistory();
-  server.send(200, "application/json", history);
+  return (number < 10 ? "0" : "") + String(number);
 }
 
 void handleSettings() 
@@ -1166,32 +1186,32 @@ void handleSettings()
           text-transform: uppercase;
         }
         form {
-          margin: 15px auto;
+          margin: 10px auto;
           display: flex;
           flex-direction: column;
           align-items: center;
         }
         label {
-          font-size: 18px;
-          margin: 10px 0;
+          font-size: 16px;
+          margin: 8px 0;
           color: #ddd;
         }
         input {
           width: 60%;
-          padding: 10px;
-          margin: 10px 0;
+          padding: 8px;
+          margin: 8px 0;
           border: 1px solid #ccc;
           border-radius: 5px;
           text-align: center;
-          font-size: 16px;
+          font-size: 14px;
         }
         button {
           background-color: #4caf50;
           color: white;
           border: none;
           border-radius: 5px;
-          padding: 10px 30px;
-          font-size: 16px;
+          padding: 8px 25px;
+          font-size: 14px;
           cursor: pointer;
           transition: all 0.3s ease;
           width: 150px;
@@ -1220,7 +1240,6 @@ void handleSettings()
         <button id="settings" onclick="location.href='/settings'">Nastavení</button>
       </div>
       <div class="center">
-        <h1>Nastavení zařízení</h1>
         <form action="/apply-settings" method="POST">
           <label for="time">Nastavit čas:</label>
           <input type="time" id="time" name="time" />
@@ -1292,26 +1311,6 @@ bool setDeviceDate(String date)
   return true;
 }
 
-/*
-float parseAltitude(String altitude) {
-    altitude.trim();
-    if (altitude.length() == 0) {
-        return NAN;
-    }
-    for (int i = 0; i < altitude.length(); i++) {
-        char c = altitude[i];
-        if (!(isDigit(c) || c == '.' || (c == '-' && i == 0))) {
-            return NAN;
-        }
-    }
-    float result = altitude.toFloat();
-    if (result == 0.0 && altitude != "0" && altitude != "0.0") {
-        return NAN;
-    }
-    return result;
-}
-*/
-
 float parseAltitude(String altitude) 
 {
     altitude.trim();
@@ -1335,7 +1334,6 @@ float parseAltitude(String altitude)
     return result;
 }
 
-
 void handleApplySettings() 
 {
   Serial.println("Apply settings!");
@@ -1352,6 +1350,7 @@ void handleApplySettings()
   setDeviceTime(time);
   setDeviceDate(date);
   writeAltitude(parseAltitude(salt));
+  altitude = parseAltitude(salt);
   String sendHtml = R"rawliteral(
   <!DOCTYPE html>
   <html lang="cs">
@@ -1569,7 +1568,7 @@ void handleRestart() {
   </html>    
   )rawliteral";
   server.send(200, "text/html", sendHtml);
-  //ESP.restart();
+  LittleFS.end();
   esp_restart();
 }
 
@@ -1647,37 +1646,37 @@ void handleFactory()
   server.send(200, "text/html", sendHtml);  
   measureTemp.cancel();
   measureTemp.disable();
-  for (int i = 0; i < EEPROM.length(); i++)
-  {
-    EEPROM.write(i, 0);
-    EEPROM.commit();
-  }
-  ESP.restart();
+  clearNamespace();
+  LittleFS.end();
+  esp_restart();
 }
 
 void sendHistory(uint8_t clientNum) 
 {
-    for (int i = 0; i < 240; i++) 
-    {
-        EEData data = readFromEprom(i);
-        DynamicJsonDocument doc(256);
-        doc["type"] = "history";
-        // Vkládání dat do vlastnosti `payload`
-        JsonObject payload = doc.createNestedObject("payload");
-        payload["temperature"] = data.temperature;
-        //payload["processorTemperature"] = data.processorTemperature;
-        payload["humidity"] = data.humidity;
-        payload["pressure"] = data.pressure;
-        payload["hour"] = data.hour;
-        payload["minute"] = data.minute;
-        payload["day"] = data.day;
-        payload["month"] = data.month;
-        payload["year"] = data.year;
-        String jsonString;
-        serializeJson(doc, jsonString);
-        webSocket.sendTXT(clientNum, jsonString);
-        delay(10);
-    }
+  for (int i = 0; i < 240; i++) 
+  {
+      EEData data = {0};
+      readFromEprom(i,data);
+      DynamicJsonDocument doc(128);
+      doc["type"] = "history";
+      JsonObject payload = doc.createNestedObject("payload");
+      payload["temperature"] = data.temperature;
+      payload["humidity"] = data.humidity;
+      payload["pressure"] = data.pressure;
+      payload["hour"] = data.hour;
+      payload["minute"] = data.minute;
+      payload["day"] = data.day;
+      payload["month"] = data.month;
+      payload["year"] = data.year;
+      String jsonString;
+      serializeJson(doc, jsonString);
+      webSocket.sendTXT(clientNum, jsonString);
+  }
+    DynamicJsonDocument doc(128);
+    doc["type"] = "closeSocket";
+    String jsonString;
+    serializeJson(doc, jsonString);
+    webSocket.sendTXT(clientNum, jsonString);
 }
 
 
@@ -1694,10 +1693,11 @@ void webSocketEvent(uint8_t client_num, WStype_t type, uint8_t *payload, size_t 
   if (type == WStype_TEXT) 
   {
     String message = String((char *)payload).substring(0, length);
-    if (message == "getPosition") 
+    if (message.equals("getPosition")) 
     {
-    Serial.println("Get position!");
+      Serial.println("Get position!");
       int position = readPosition();
+      position++;
       DynamicJsonDocument doc(64);
       doc["type"] = "position";
       doc["position"] = position;
@@ -1705,23 +1705,284 @@ void webSocketEvent(uint8_t client_num, WStype_t type, uint8_t *payload, size_t 
       serializeJson(doc, jsonString);
       webSocket.sendTXT(client_num, jsonString);
     } 
-    else if (message == "loadhistory") 
+    else if (message.equals("loadhistory"))
     {
       Serial.println("Load history!");
       sendHistory(client_num);
+    }
+    else if (message.equals("overview"))
+    {
     }
   }
 }
 
 
+String formatTwoDigits(int value) 
+{
+  if (value < 10) 
+  {
+    return "0" + String(value);
+  }
+  return String(value);
+}
 
-
-// 6000 size eeprom / 24 size EEData = 250
-// Size history = 240 * 24 = 5760
-// 1xSettings (245)
-// 1xMinTemp (246)
-// 1xMaxTemp (247)
-// 1440 / 240 = 6 minutes for one cyclus write to eeprom
+void callback_bluetooth(esp_spp_cb_event_t event, esp_spp_cb_param_t *param) 
+{
+  if (event == ESP_SPP_SRV_OPEN_EVT) 
+  {
+    Serial.println("New BT client connected!");
+    SerialBT.println("Welcome!");
+    SerialBT.println("Available commands:");
+    SerialBT.println("0 = This help");
+    SerialBT.println("1 = Current temp");
+    SerialBT.println("2 = Minimal temp");
+    SerialBT.println("3 = Maximal temp");
+    SerialBT.println("4 = Current pressure");
+    SerialBT.println("5 = Current humidity");
+    SerialBT.println("6 = Current position + history");
+    SerialBT.println("7 = Board time/date");
+    SerialBT.println("8 = Altitude");
+    SerialBT.println("9 = Restart");
+    SerialBT.println("Available settings:");
+    SerialBT.println("10 = Set time HHMM");
+    SerialBT.println("11 = Set date DDMMYYYY");
+    SerialBT.println("12 = Set altitude");
+    SerialBT.println("13 = Clear history");
+    SerialBT.println("14 = Factory settings");
+  }
+  else if (event == ESP_SPP_CLOSE_EVT) 
+  {
+    Serial.println("BT client disconnect!");
+  }
+  else if (event == ESP_SPP_DATA_IND_EVT) 
+  {
+    Serial.print("BT client sending command: ");
+    size_t len = param->data_ind.len;
+    uint8_t *data = param->data_ind.data;
+    char message[len + 1];
+    memcpy(message, data, len);
+    message[len] = '\0';
+    Serial.println(message);
+    String input = String(message);
+    int firstSpaceIndex = input.indexOf(' ');
+    int command = -1;
+    String parameters = "";
+    if (firstSpaceIndex == -1) 
+    {
+      command = input.toInt();
+    }
+    else
+    {
+      command = input.substring(0, firstSpaceIndex).toInt();
+      parameters = input.substring(firstSpaceIndex + 1);
+    }
+    switch (command) 
+    {
+      case 0:
+      {
+        SerialBT.println("");
+        SerialBT.println("Available commands:");
+        SerialBT.println("0 = This help");
+        SerialBT.println("1 = Current temp");
+        SerialBT.println("2 = Minimal temp");
+        SerialBT.println("3 = Maximal temp");
+        SerialBT.println("4 = Current pressure");
+        SerialBT.println("5 = Current humidity");
+        SerialBT.println("6 = Current position + history");
+        SerialBT.println("7 = Board time/date");
+        SerialBT.println("8 = Altitude");
+        SerialBT.println("9 = Restart");
+        SerialBT.println("Available settings:");
+        SerialBT.println("10 = Set time HHMM");
+        SerialBT.println("11 = Set date DDMMYYYY");
+        SerialBT.println("12 = Set altitude");
+        SerialBT.println("13 = Clear history");
+        SerialBT.println("14 = Factory settings");
+        SerialBT.println("");
+      }
+      case 1:
+      {
+        Serial.println("Sending current temperature");
+        SerialBT.println(String(temperature, 1));
+        break;
+      }
+      case 2:
+      {
+        Serial.println("Sending minimal temperature");
+        SerialBT.println(
+          String(minTemp.temperature, 1) + " " +
+          formatTwoDigits(minTemp.hour) +
+          formatTwoDigits(minTemp.minute) + " " +
+          formatTwoDigits(minTemp.day) +
+          formatTwoDigits(minTemp.month) +
+          String(minTemp.year)
+        );          
+        break;
+      }
+      case 3:
+      {
+        Serial.println("Sending maximal temperature");
+        SerialBT.println(
+          String(maxTemp.temperature, 1) + " " +
+          formatTwoDigits(maxTemp.hour) +
+          formatTwoDigits(maxTemp.minute) + " " +
+          formatTwoDigits(maxTemp.day) +
+          formatTwoDigits(maxTemp.month) +
+          String(minTemp.year)
+        );          
+        break;
+      }
+      case 4:
+      {
+        Serial.println("Sending current pressure");
+        SerialBT.println(String(calculateSeaLevelPressure(pressure,altitude),2));
+        break;
+      }
+      case 5:
+      {
+        Serial.println("Sending current humidity");
+        SerialBT.println(String(humidity, 1));
+        break;
+      }
+      case 6:
+      {
+        Serial.println("Sending current position and history");
+        String sendHistory = "";
+        sendHistory += String(readPosition()) + "\n     ";
+        for (int i = 0; i < 240; i++) 
+        {
+          EEData data = {0};
+          readFromEprom(i,data);
+          sendHistory +=
+            formatTwoDigits(data.day) +
+            formatTwoDigits(data.month) + 
+            String(data.year) + " " +
+            formatTwoDigits(data.hour) +
+            formatTwoDigits(data.minute) + " " +
+            String(data.temperature, 1) + " " +
+            String(data.pressure, 2) + " " +
+            String(data.humidity, 1) + "\n     "; //5 space
+        }
+        SerialBT.println(sendHistory);
+        break;
+      }
+      case 7:
+      {
+        Serial.println("Sending time and date");
+        DateTime now = rtc.now();
+        SerialBT.println(
+          formatTwoDigits(now.hour()) +
+          formatTwoDigits(now.minute()) + " " +
+          formatTwoDigits(now.day()) + 
+          formatTwoDigits(now.month()) + 
+          String(now.year())
+        );
+        break;
+      }
+      case 8:
+      {
+        Serial.println("Sending altitude");
+        SerialBT.println(String(altitude,0));
+        break;
+      }
+      case 9:
+      {
+        Serial.println("Restart TempoBW");
+        delay(1000);
+        LittleFS.end();
+        esp_restart();
+        break;
+      }
+      case 10:
+      {
+        if (isdigit(parameters[0]) && isdigit(parameters[1]) &&
+            isdigit(parameters[2]) && isdigit(parameters[3])) {
+          int hours = parameters.substring(0, 2).toInt();
+          int minutes = parameters.substring(2, 4).toInt();
+          if (hours >= 0 && hours < 24 && minutes >= 0 && minutes < 60) {
+            Serial.println("Time set to " + String(hours) + ":" + String(minutes));
+            DateTime now = rtc.now();
+            rtc.adjust(DateTime(now.year(), now.month(), now.day(), hours, minutes, 0)); 
+            SerialBT.println("OK");
+          } else {
+            SerialBT.println("KO");
+          }
+        } else {
+          SerialBT.println("KO");
+        }
+        break;
+      }
+      case 11:
+      {
+        if (isdigit(parameters[0]) && isdigit(parameters[1]) &&
+            isdigit(parameters[2]) && isdigit(parameters[3]) && isdigit(parameters[4]) &&
+            isdigit(parameters[5]) && isdigit(parameters[6]) && isdigit(parameters[7])) {
+          int day = parameters.substring(0, 2).toInt();
+          int month = parameters.substring(2, 4).toInt();
+          int year = parameters.substring(4, 8).toInt();
+          if (day >= 1 && day <= 31 && month >= 1 && month <= 12) 
+          {
+            Serial.println("Date set to " + String(day) + "." + String(month) + "." + String(year));
+            DateTime now = rtc.now();
+            rtc.adjust(DateTime(year, month, day, now.hour(), now.minute(), now.second()));              
+            SerialBT.println("OK");
+          }
+          else
+          {
+            SerialBT.println("KO");
+          }
+        }
+        else
+        {
+          SerialBT.println("KO");
+        }
+        break;
+      }
+      case 12:
+      {
+        if (parameters.length() > 0 && parameters.toInt() != 0) 
+        {
+          altitude = parameters.toFloat();
+          writeAltitude(altitude);
+          Serial.println("Altitude set to " + String(altitude) + " m");
+          SerialBT.println("OK");
+        }
+        else
+        {
+          SerialBT.println("KO");
+        }
+        break;
+      }
+      case 13:
+      {
+        Serial.println("Clear history!");
+        clearHistory();
+        clearMinTemp();
+        clearMaxTemp();
+        writePosition(255);
+        SerialBT.println("OK");
+        break;
+      }
+      case 14:
+      {
+        Serial.println("Factory settings!");
+        delay(1000);
+        measureTemp.cancel();
+        measureTemp.disable();
+        clearNamespace();
+        LittleFS.end();
+        esp_restart();
+        break;
+      }
+      default:
+      {
+        Serial.println("Unknown command: " + String(command));
+        SerialBT.println("Unknown command");
+        break;
+      }
+    }
+  }
+}
 
 void setup() 
 {
@@ -1754,9 +2015,10 @@ void setup()
       Serial.println("FAIL!");
       Serial.println("Restart ESP is in proccessing...");
       delay(5000);
-      ESP.restart();
+      esp_restart();
     }
   }
+  SerialBT.register_callback(callback_bluetooth);
   Serial.println("OK!");
   WiFi.disconnect(true);
   Serial.print("Starting webserver...");
@@ -1772,7 +2034,7 @@ void setup()
       Serial.println("FAIL!");
       Serial.println("Restart ESP is in proccessing...");
       delay(5000);
-      ESP.restart();
+      esp_restart();
     }
   }
   Serial.println("OK!");
@@ -1781,7 +2043,6 @@ void setup()
   WiFi.onEvent(WiFiEvent);
   server.on("/", handleRoot);
   server.on("/history", handleHistory);
-  server.on("/history-data", handleHistoryData);  
   server.on("/settings", handleSettings);
   server.on("/apply-settings", HTTP_POST, handleApplySettings);
   server.on("/reset-history", HTTP_POST, handleResetHistory);
@@ -1793,14 +2054,24 @@ void setup()
   webSocket.onEvent(webSocketEvent);  
   Serial.println("WIFI websocket started");
   Wire.begin(SDA, SCL);
-  Serial.println("Wire begin");
-  if (!EEPROM.begin(6000))
+  Serial.println("Wire init OK");
+  Serial.println("Startup LittleFS");
+  if (!LittleFS.begin(true))
   {
-    Serial.println("EEPROM cannot be initialized!");
+    if (!LittleFS.format())
+    {
+      Serial.println("FAIL!");
+      Serial.println("Restart ESP is in proccessing...");
+      delay(5000);
+      esp_restart();
+    }
+    else
+    {
+      Serial.println("LittleFS formatted successfully!");
+    }
   }
   else
   {
-    delay(1000);
     EESet eset = readSettings();
     if (eset.crc != 4444)
     {
@@ -1809,21 +2080,18 @@ void setup()
       clearMinTemp();
       clearMaxTemp();
       altitude = 250.0f;
-      Serial.println("NEW EEPROM settings init!");
-      Serial.print("Size EEPROM: ");
-      Serial.println(EEPROM.length());
-      Serial.print("Altitude: ");
+      Serial.println("NEW LittleFS settings init!");
+      Serial.print("Altitude set to default: ");
       Serial.println(altitude);
     }
     else
     {
-      Serial.println("EEPROM init OK!");
-      Serial.print("Size EEPROM: ");
-      Serial.println(EEPROM.length());
+      Serial.println("LittleFS init OK!");
       if (isnan(eset.altitude))
       {
         altitude = 250.0f;
         writeAltitude(altitude);
+        Serial.println("Incorrect altitude!");
         Serial.print("Altitude set to default: ");
         Serial.println(altitude);
       }
@@ -1834,10 +2102,31 @@ void setup()
         Serial.println(altitude);
       }
     }
+    eset = readSettings();
     Serial.print("Current position: ");
     Serial.println(eset.position);
+
+    EEData miTemp = readMinTemp();
+    EEData maTemp = readMaxTemp();
+
+    minTemp.temperature = miTemp.temperature;
+    minTemp.hour = miTemp.hour;
+    minTemp.minute = miTemp.minute;
+    minTemp.day = miTemp.day;
+    minTemp.month = miTemp.month;
+    minTemp.year = miTemp.year;
+    Serial.println("Minimal temperature loaded");
+
+    maxTemp.temperature = maTemp.temperature;
+    maxTemp.hour = maTemp.hour;
+    maxTemp.minute = maTemp.minute;
+    maxTemp.day = maTemp.day;
+    maxTemp.month = maTemp.month;
+    maxTemp.year = maTemp.year;
+    Serial.println("Maximal temperature loaded");
+
     measureTemp.enableDelayed(360000);
-    Serial.println("Writter eeprom starting [6min] !");
+    Serial.println("Writter for LittleFS starting [6min] !");
   }
   if (!rtc.begin()) 
   {
@@ -1925,6 +2214,7 @@ void loop()
   json["pressure"] = String(calculateSeaLevelPressure(pressure,altitude),2); //String(pressure, 1);
   json["humidity"] = String(humidity, 1);
   json["devTemp"] = String(deviceTemp, 1);
+  json["altitude"] = String(altitude,0);
   json["clientCount"] = clientCount;
   json["devTime"] = devTime;
   json["devDate"] = devDate;
@@ -1949,18 +2239,6 @@ void loop()
   server.handleClient();
   webSocket.loop();
   
-  /*
-  if (SerialBT.available()) {
-    char incomingChar = SerialBT.read();
-    Serial.print("Received: ");
-    Serial.println(incomingChar);
-  }
-
-  if (Serial.available()) {
-    SerialBT.write(Serial.read());
-  }
-  */
-
   unsigned long currentMillis = millis();
   if (currentMillis - previousMillis >= interval) 
   {
@@ -2068,23 +2346,4 @@ void loop()
 
 
 
-
-/*
-  ShowData("TEPLOTA","-12.7 C");
-  delay(5000);
-  ShowData("VLHKOST","78.4 %");
-  delay(5000);
-  ShowData("ATM. TLAK","1018.3 hPa");
-  delay(5000);
-  ShowData("MIN 24/12/25 04:54","-10.5 C");
-  delay(5000);
-  ShowData("MAX 23/12/25 22:11","+32.5 C");
-  delay(5000);
-  ShowData("CAS ZARIZENI","05:18");
-  delay(5000);
-  ShowData("DATUM ZARIZENI","25/12/25");
-  delay(5000);
-  ShowData("TEPLOTA ZARIZENI","+5.8 C");
-  delay(5000);
-*/
 
