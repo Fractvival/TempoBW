@@ -2,18 +2,30 @@
 // Outdoor bluetooth and wifi thermometer
 // PROGMaxi software 2025
 
+// Go https://www.silabs.com/developer-tools/usb-to-uart-bridge-vcp-drivers?tab=downloads
+// Downalod "CP210x Universal Windows Driver" and install (right click "silabser.inf" and Install)
+// Select board and port: Tools -> Board -> esp32 -> LOLIN D32 and port: Tools -> Port -> port number
+// Tools -> Partitions scheme -> No OTA (Large APP)
+// Add ESP32 boards:
+// In Boards Manager find and install "esp32 by Espressif Systems" (https://github.com/espressif/arduino-esp32)
+// Wait for the download and then go to:
+// File -> Preferences -> Additional boards manager, paste URL:
+// https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
+// If there is another URL here, add a comma after the last URL "," and then paste the link above
+// After pasting the link, restart the Arduino IDE and let all updates take place
+
 #include <LittleFS.h>
-#include <U8g2lib.h>
-#include <RTClib.h>
-#include <DallasTemperature.h>
-#include <TaskScheduler.h>
-#include <OneWire.h>
+#include <U8g2lib.h>              // U8g2 by oliver (https://github.com/olikraus/u8g2)
+#include <RTClib.h>               // RTCLib by Adafruit (https://github.com/adafruit/RTClib)
+#include <DallasTemperature.h>    // DallasTemperature by Miles Burton (https://github.com/milesburton/Arduino-Temperature-Control-Library)
+#include <TaskScheduler.h>        // TaskScheduler by Anatoli Arkhipenko (https://github.com/arkhipenko/TaskScheduler)
+#include <OneWire.h>              // downlad library https://github.com/PaulStoffregen/OneWire, Sketch -> Inlude library -> Add .ZIP Library file
 #include <WiFi.h>
 #include <WebServer.h>
-#include <WebSocketsServer.h>
-#include <ArduinoJson.h>
-#include <Adafruit_BME280.h>
-#include <Adafruit_SHT4x.h>
+#include <WebSocketsServer.h>     // download library https://github.com/Links2004/arduinoWebSockets/tree/master, Sketch -> Inlude library -> Add .ZIP Library file
+#include <ArduinoJson.h>          // download library https://github.com/bblanchon/ArduinoJson, Sketch -> Inlude library -> Add .ZIP Library file
+#include <Adafruit_BME280.h>      // Adafruit BME280 Library by Adafruit (https://github.com/adafruit/Adafruit_BME280_Library)
+#include <Adafruit_SHT4x.h>       // Adafruit SHT4x Library by Adafruit (https://github.com/adafruit/Adafruit_SHT4x)
 #include "BluetoothSerial.h"
 
 #define ONE_WIRE_BUS 19
@@ -21,6 +33,60 @@
 #define SCL 22
 #define WIDTH 128
 #define HEIGHT 32
+
+String strTitleIndex = "TempoBW";
+String strTitleHistory = "TempoBW - Historie";
+String strTitleSettings = "TempoBW - Nastavení";
+String strOLEDTemperature = "** TEPLOTA **";
+String strOLEDHumidity = "VLHKOST";
+String strOLEDPressure = "ATM. TLAK";
+String strOLEDBoardTime = "CAS ZARIZENI";
+String strOLEDBoardDate = "DATUM ZARIZENI";
+String strOLEDBoardTemperature = "TEPLOTA ZARIZENI";
+String strMenuHome = "Domů";
+String strMenuHistory = "Historie";
+String strMenuSettings = "Nastavení";
+String strLoading = "Načítám";
+String strCurrentTemperature = "Aktuální teplota";
+String strPressure = "Atmosferický tlak";
+String strHumidity = "Vlhkost";
+String strMinimal = "Minimum";
+String strMaximal = "Maximum";
+String strBoardTime = "Čas zařízení";
+String strBoardDate = "Datum zařízení";
+String strAltitude = "Nadmořská výška";
+String strBoardTemperature = "Teplota zařízení";
+String strClientsCount = "Počet klientů";
+String strNoHistory = "PROZATÍM NENÍ ŽÁDNÁ HISTORIE";
+String strConnecting = "Připojuji..";
+String strConnected = "Připojeno";
+String strDisconnecting = "Odpojuji..";
+String strDisconnected = "Odpojeno";
+String strDisconnect = "Odpojit";
+String strRefresh = "OBNOVIT STRÁNKU";
+String strConnectWebsocket = "Připojit Websocket";
+String strDisconnectWebsocket = "Odpojit Websocket";
+String strWebsocketNoConnected = "Websocket není připojen!";
+String strWebsocketStillConnected = "Websocket je stále připojen!";
+String strLoadData = "Načíst data";
+String strTableDate = "Datum";
+String strTableTime = "Čas";
+String strTableTemperature = "Teplota";
+String strTableHumidity = "Vlhkost";
+String strTablePressure = "Tlak";
+String strConfirmClearHistory = "Skutečně smazat historii?";
+String strConfirmFactory = "Skutečně provést tovární nastavení?";
+String strSetTime = "Nastavit čas:";
+String strSetDate = "Nastavit datum:";
+String strSetAltitude = "Nastavit výšku (m):";
+String strEnterAltitude = "Zadej výšku";
+String strSaveSettings = "Uložit nastavení";
+String strClearHistory = "Smazat historii";
+String strRestart = "Restart zařízení";
+String strFactory = "Tovární nastavení";
+String strRequestSuccess = "POŽADAVEK VYŘÍZEN!";
+String strGotoMainPage = "PŘEJÍT NA ÚVODNÍ STRÁNKU";
+String strReconnectToWifi = "ZNOVU SE PŘIPOJ K WIFI ZAŘÍZENÍ";
 
 
 BluetoothSerial SerialBT;
@@ -462,9 +528,27 @@ void handleRoot()
       <head>
           <meta charset="UTF-8" />
           <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-          <title>TempoBW</title>
+          <title>)rawliteral" + strTitleIndex + R"rawliteral(</title>
           <script>
               let socket;
+              function disconnectWebSocket(callback) {
+                  if (socket && socket.readyState === WebSocket.OPEN) {
+                      socket.onclose = () => {
+                          socket = null;
+                          if (callback) callback();
+                      };
+                      socket.close();
+                  } else {
+                      socket = null;
+                      if (callback) callback();
+                  }
+              }              
+              function navigateToHistory() {
+                  disconnectWebSocket();
+                  setTimeout(() => {
+                      location.href = '/history';
+                  }, 1000);
+              }              
               function formatWithLeadingZero(value) {
                   return value < 10 ? `0${value}` : value;
               }
@@ -493,14 +577,13 @@ void handleRoot()
                   };
                   socket.onerror = function (error) {
                       console.error("WebSocket error:", error);
-                      document.getElementById("temp").innerText = "WS CHYBA!";
+                      document.getElementById("temp").innerText = "WS ERROR!";
                   };
                   socket.onclose = function () {
                       console.warn("WebSocket connection closed.");
-                      document.getElementById("temp").innerText = "WS UZAVŘEN!";
+                      document.getElementById("temp").innerText = "WS CLOSED!";
                   };
                   window.addEventListener("beforeunload", () => {
-                      // Uzavření WebSocket spojení
                       if (websocket.readyState === WebSocket.OPEN) {
                           websocket.close();
                       }
@@ -579,97 +662,103 @@ void handleRoot()
       </head>
       <body style="background-color: #212f3c">
           <div class="menu">
-              <button id="home" onclick="location.href='/'">Domů</button>
-              <button id="history" onclick="location.href='/history'">Historie</button>
-              <button id="settings" onclick="location.href='/settings'">Nastavení</button>
+              <button id="home" onclick="location.href='/'">)rawliteral" + strMenuHome + R"rawliteral(</button>
+              <button id="history" onclick="navigateToHistory()">)rawliteral" + strMenuHistory + R"rawliteral(</button>
+              <button id="settings" onclick="location.href='/settings'">)rawliteral" + strMenuSettings + R"rawliteral(</button>
           </div>
           <br>
           <br>
           <table id="maintable" align="center" width="85%" cellspacing="5" cellpadding="5" border="1">
               <tbody>
                   <tr>
-                      <td class="table-header">Aktuální teplota</td>
-                      <td class="table-cell"><span id="temp">Načítám...</span></td>
+                      <td class="table-header">)rawliteral" + strCurrentTemperature + R"rawliteral(</td>
+                      <td class="table-cell"><span id="temp">)rawliteral" + strLoading + R"rawliteral(</span></td>
                   </tr>
                   <tr>
-                      <td class="table-header">Tlak vzduchu</td>
-                      <td class="table-cell" id="press">Načítám...</td>
+                      <td class="table-header">)rawliteral" + strPressure + R"rawliteral(</td>
+                      <td class="table-cell" id="press">)rawliteral" + strLoading + R"rawliteral(</td>
                   </tr>
                   <tr>
-                      <td class="table-header">Vlhkost</td>
-                      <td class="table-cell" id="hum">Načítám...</td>
+                      <td class="table-header">)rawliteral" + strHumidity + R"rawliteral(</td>
+                      <td class="table-cell" id="hum">)rawliteral" + strLoading + R"rawliteral(</td>
                   </tr>
                   <tr>
-                      <td class="table-header">Minimum</td>
-                      <td class="table-cell" id="minimum">Načítám...</td>
-                  </tr>
-                  <tr>
-                      <td style="border: none; background: none;"></td>
-                      <td class="table-cell" id="minimumTime">Načítám...</td>
+                      <td class="table-header">)rawliteral" + strMinimal + R"rawliteral(</td>
+                      <td class="table-cell" id="minimum">)rawliteral" + strLoading + R"rawliteral(</td>
                   </tr>
                   <tr>
                       <td style="border: none; background: none;"></td>
-                      <td class="table-cell" id="minimumDate">Načítám...</td>
-                  </tr>
-                  <tr>
-                      <td class="table-header">Maximum</td>
-                      <td class="table-cell" id="maximum">Načítám...</td>
+                      <td class="table-cell" id="minimumTime">)rawliteral" + strLoading + R"rawliteral(</td>
                   </tr>
                   <tr>
                       <td style="border: none; background: none;"></td>
-                      <td class="table-cell" id="maximumTime">Načítám...</td>
+                      <td class="table-cell" id="minimumDate">)rawliteral" + strLoading + R"rawliteral(</td>
+                  </tr>
+                  <tr>
+                      <td class="table-header">)rawliteral" + strMaximal + R"rawliteral(</td>
+                      <td class="table-cell" id="maximum">)rawliteral" + strLoading + R"rawliteral(</td>
                   </tr>
                   <tr>
                       <td style="border: none; background: none;"></td>
-                      <td class="table-cell" id="maximumDate">Načítám...</td>
+                      <td class="table-cell" id="maximumTime">)rawliteral" + strLoading + R"rawliteral(</td>
                   </tr>
                   <tr>
-                      <td class="table-header">Čas zařízení</td>
-                      <td class="table-cell" id="devTime">Načítám...</td>
+                      <td style="border: none; background: none;"></td>
+                      <td class="table-cell" id="maximumDate">)rawliteral" + strLoading + R"rawliteral(</td>
                   </tr>
                   <tr>
-                      <td class="table-header">Datum zařízení</td>
-                      <td class="table-cell" id="devDate">Načítám...</td>
+                      <td class="table-header">)rawliteral" + strBoardTime + R"rawliteral(</td>
+                      <td class="table-cell" id="devTime">)rawliteral" + strLoading + R"rawliteral(</td>
                   </tr>
                   <tr>
-                      <td class="table-header">Teplota zařízení</td>
-                      <td class="table-cell" id="devTemp">Načítám...</td>
+                      <td class="table-header">)rawliteral" + strBoardDate + R"rawliteral(</td>
+                      <td class="table-cell" id="devDate">)rawliteral" + strLoading + R"rawliteral(</td>
                   </tr>
                   <tr>
-                      <td class="table-header">Nadmořská výška</td>
-                      <td class="table-cell" id="altitude">Načítám...</td>
+                      <td class="table-header">)rawliteral" + strBoardTemperature + R"rawliteral(</td>
+                      <td class="table-cell" id="devTemp">)rawliteral" + strLoading + R"rawliteral(</td>
                   </tr>
                   <tr>
-                      <td class="table-header">Počet klientů</td>
-                      <td class="table-cell" id="clients">Načítám...</td>
+                      <td class="table-header">)rawliteral" + strAltitude + R"rawliteral(</td>
+                      <td class="table-cell" id="altitude">)rawliteral" + strLoading + R"rawliteral(</td>
+                  </tr>
+                  <tr>
+                      <td class="table-header">)rawliteral" + strClientsCount + R"rawliteral(</td>
+                      <td class="table-cell" id="clients">)rawliteral" + strLoading + R"rawliteral(</td>
                   </tr>
               </tbody>
           </table>
-          <div class="center">
-              <br />
-              <h5>PROGMaxi software 2025</h5>
-              <br />
-              <br />
-          </div>
+          <br />
+          <br />
       </body>
   </html>
   )rawliteral";
   server.send(200, "text/html", html);
 }
 
+void replaceString(String &html, String searchText, String replaceText) 
+{
+    int startIndex = html.indexOf(searchText);
+    if (startIndex != -1) {
+        html = html.substring(0, startIndex) + replaceText + html.substring(startIndex + searchText.length());
+    }
+}
 
 void handleHistory() 
 {
-  Serial.println("History page!");
   if (readPosition() == 255)
   {
+    Serial.println("History page! NO HISTORY");
     String emptyHistoryHtml = R"rawliteral(
     <!doctype html>
     <html lang="cs">
     <head>
         <meta charset="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        <title>TempoBW - Historie</title>
+        <title>)rawliteral" + strTitleHistory + R"rawliteral(</title>
+        <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, max-age=0" />
+        <meta http-equiv="Pragma" content="no-cache" />
+        <meta http-equiv="Expires" content="0" />
         <style>
             .center {
                 margin: 2px auto;
@@ -751,37 +840,40 @@ void handleHistory()
     </head>
     <body style="background-color: #212f3c">
         <div class="menu">
-            <button id="home" onclick="location.href='/'">Domů</button>
-            <button id="history" onclick="location.href='/history'">Historie</button>
-            <button id="settings" onclick="location.href='/settings'">Nastavení</button>
+            <button id="home" onclick="location.href='/'">)rawliteral" + strMenuHome + R"rawliteral(</button>
+            <button id="history" onclick="location.href='/history'">)rawliteral" + strMenuHistory + R"rawliteral(</button>
+            <button id="settings" onclick="location.href='/settings'">)rawliteral" + strMenuSettings + R"rawliteral(</button>
         </div>
         <div class="center">
             <br>
             <br>
-            <p class="message">V HISTORII ZATÍM NENÍ ŽÁDNÝ ZÁZNAM</p>
+            <p class="message">)rawliteral" + strNoHistory + R"rawliteral(</p>
             <br>
-            <button class="refresh-button" onclick="location.href='/history'">OBNOVIT STRÁNKU</button>
+            <button class="refresh-button" onclick="location.href='/history'">)rawliteral" + strRefresh + R"rawliteral(</button>
         </div>
-        <div class="center">
-            <br />
-            <h5>PROGMaxi software 2025</h5>
-            <br />
-            <br />
-        </div>
+        <br />
+        <br />
     </body>
     </html>
     )rawliteral";
+    server.sendHeader("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
+    server.sendHeader("Pragma", "no-cache");
+    server.sendHeader("Expires", "0");
     server.send(200, "text/html", emptyHistoryHtml);    
   }
   else
   {
+    Serial.println("History page!");
     String html = R"rawliteral(
     <!doctype html>
     <html lang="cs">
         <head>
             <meta charset="UTF-8" />
             <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-            <title>TempoBW - Historie</title>
+            <title>{{strTitleHistory}}</title>
+            <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, max-age=0" />
+            <meta http-equiv="Pragma" content="no-cache" />
+            <meta http-equiv="Expires" content="0" />
             <style>
                 .center {
                     margin: 2px auto;
@@ -906,49 +998,43 @@ void handleHistory()
                 let idrow = 0;
 
                 document.addEventListener("DOMContentLoaded", () => {
-                    // Inicializace prvků po načtení DOM
                     const buttonToggle = document.getElementById("toggleWebSocket");
                     const buttonLoadData = document.getElementById("loadData");
                     const statusDisplay = document.getElementById("webSocketStatus");
-                    // const positionValue = document.getElementById("posvalue");
 
-                    // Funkce pro aktualizaci stavu WebSocket
                     function updateStatusDisplay() {
                         if (websocket) {
                             switch (websocket.readyState) {
                                 case WebSocket.CONNECTING:
-                                    statusDisplay.textContent = "Připojování...";
+                                    statusDisplay.textContent = "{{strConnecting}}";
                                     break;
                                 case WebSocket.OPEN:
-                                    statusDisplay.textContent = "Připojeno";
+                                    statusDisplay.textContent = "{{strConnected}}";
                                     break;
                                 case WebSocket.CLOSING:
-                                    statusDisplay.textContent = "Odpojuji...";
+                                    statusDisplay.textContent = "{{strDisconnecting}}";
                                     break;
                                 case WebSocket.CLOSED:
-                                    statusDisplay.textContent = "Odpojeno";
+                                    statusDisplay.textContent = "{{strDisconnected}}";
                                     break;
                             }
                         } else {
-                            statusDisplay.textContent = "Odpojeno";
+                            statusDisplay.textContent = "{{strDisconnected}}";
                         }
                     }
-
-                    // Připojení WebSocket
                     function connectWebSocket() {
                         websocket = new WebSocket("ws://" + location.host + ":81");
 
                         websocket.onopen = () => {
-                            console.log("WebSocket připojen.");
+                            console.log("WebSocket connected.");
                             updateStatusDisplay();
                         };
-
                         websocket.onmessage = (event) => {
                             const message = JSON.parse(event.data);
                             if (message.type === "closeSocket")
                             {
                               disconnectWebSocket(() => {
-                                  buttonToggle.textContent = "Připojit WebSocket";
+                                  buttonToggle.textContent = "{{strConnectWebsocket}}";
                               });
                             }
                             else if (message.type === "position") 
@@ -982,68 +1068,54 @@ void handleHistory()
                                 }
                             }
                         };
-
                         websocket.onclose = () => {
-                            console.log("WebSocket uzavřen.");
+                            console.log("WebSocket closed.");
                             updateStatusDisplay();
                         };
-
                         websocket.onerror = (error) => {
-                            console.error("WebSocket chyba:", error);
+                            console.error("WebSocket error:", error);
                             updateStatusDisplay();
                         };
                     }
-
-                    // Odpojení WebSocket
                     function disconnectWebSocket(callback) {
                         if (websocket && websocket.readyState === WebSocket.OPEN) {
-                            websocket.close();
                             websocket.onclose = () => {
-                                updateStatusDisplay();
+                                websocket = null;
                                 if (callback) callback();
                             };
-                        } else if (callback) {
-                            callback();
+                            websocket.close();
+                        } else {
+                            websocket = null;
+                            if (callback) callback();
                         }
                     }
-
-                    // Odeslání zprávy
                     function sendMessage(message) {
                         if (websocket && websocket.readyState === WebSocket.OPEN) {
                             websocket.send(message);
                         } else {
-                            alert("WebSocket není připojen.");
+                            alert("{{strWebsocketNoConnected}}");
                         }
                     }
-
-                    // Event listener pro tlačítko "Připojit/Odpojit"
                     buttonToggle.addEventListener("click", () => {
                         if (websocket && websocket.readyState === WebSocket.OPEN) {
                             disconnectWebSocket(() => {
-                                buttonToggle.textContent = "Připojit WebSocket";
+                                buttonToggle.textContent = "{{strConnectWebsocket}}";
                             });
                         } else {
                             connectWebSocket();
-                            buttonToggle.textContent = "Odpojit WebSocket";
+                            buttonToggle.textContent = "{{strDisconnect}}";
                         }
                     });
-
-                    // Event listener pro tlačítko "Načíst data"
                     buttonLoadData.addEventListener("click", () => {
                         sendMessage("getPosition");
                     });
-
-                    // Kliknutí na tlačítka s atributem data-href
                     document.addEventListener("click", (event) => {
                         if (event.target.tagName === "BUTTON" && event.target.hasAttribute("data-href")) {
                             const targetHref = event.target.getAttribute("data-href");
-
-                            // Kontrola, zda je WebSocket stále připojen
                             if (websocket && websocket.readyState === WebSocket.OPEN) {
-                                event.preventDefault(); // Zastavíme přechod na jinou stránku
-                                alert("WebSocket je stále připojen. Nejprve ho odpojte."); // Upozornění uživateli
+                                event.preventDefault();
+                                alert("{{strWebsocketStillConnected}}");
                             } else {
-                                // Pokud není WebSocket připojen, přejdeme na cílovou stránku
                                 window.location.href = targetHref;
                             }
                         }
@@ -1053,25 +1125,25 @@ void handleHistory()
         </head>
         <body style="background-color: #212f3c">
             <div class="menu">
-                <button id="home" data-href="/">Domů</button>
-                <button id="history" data-href="/history">Historie</button>
-                <button id="settings" data-href="/settings">Nastavení</button>
+                <button id="home" data-href="/">{{strMenuHome}}</button>
+                <button id="history" data-href="/history">{{strMenuHistory}}</button>
+                <button id="settings" data-href="/settings">{{strMenuSettings}}</button>
             </div>
             <div class="center">
                 <br>
                 <br>
                 <br>
                 <div>
-                    <button class="tooglebutton" id="toggleWebSocket">Připojit WebSocket</button>
+                    <button class="tooglebutton" id="toggleWebSocket">{{strConnectWebsocket}}</button>
                     <br />
                     <br />
-                    <span class="apos-value" id="webSocketStatus">Odpojeno</span>
+                    <span class="apos-value" id="webSocketStatus">{{strDisconnected}}</span>
                 </div>
                 <br>
                 <br>
             </div>
             <div class="menu">
-                <button id="loadData">Načíst data</button>
+                <button id="loadData">{{strLoadData}}</button>
             </div>
             <br />
             <br />
@@ -1079,26 +1151,47 @@ void handleHistory()
                 <thead>
                     <tr>
                         <th>#</th>
-                        <th>Datum</th>
-                        <th>Čas</th>
-                        <th>Teplota</th>
-                        <th>Vlhkost</th>
-                        <th>Tlak</th>
+                        <th>{{strTableDate}}</th>
+                        <th>{{strTableTime}}</th>
+                        <th>{{strTableTemperature}}</th>
+                        <th>{{strTableHumidity}}</th>
+                        <th>{{strTablePressure}}</th>
                     </tr>
                 </thead>
                 <tbody id="dataBody">
-                    <!-- Data budou dynamicky načtena sem -->
                 </tbody>
             </table>
-            <div class="center">
-                <br />
-                <h5>PROGMaxi software 2025</h5>
-                <br />
-                <br />
-            </div>
+            <br />
+            <br />
         </body>
     </html>
     )rawliteral";
+
+    //html.replace(html.find("{{strWebsocketStillConnected}}"), -1, strWebsocketStillConnected);
+    //{{strDisconnect}}
+    //{{strConnectWebsocket}}
+    //{{strWebsocketNoConnected}}
+    //{{strDisconnected}}
+    //{{strDisconnecting}}
+    //{{strConnected}}
+    //{{strConnecting}}
+    //{{strTitleHistory}}
+    //{{strTableDate}}
+    //{{strTableTime}}
+    //{{strTableTemperature}}
+    //{{strTableHumidity}}
+    //{{strTablePressure}}
+    //{{strLoadData}}
+    replaceString(html, "{{strMenuHome}}", strMenuHome);
+    //{{strMenuHome}}
+    replaceString(html, "{{strMenuHistory}}", strMenuHistory);
+    //{{strMenuHistory}}
+    replaceString(html, "{{strMenuSettings}}", strMenuSettings);
+    //{{strMenuSettings}}
+
+    server.sendHeader("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
+    server.sendHeader("Pragma", "no-cache");
+    server.sendHeader("Expires", "0");
     server.send(200, "text/html", html);
   }
 }
@@ -1117,7 +1210,7 @@ void handleSettings()
     <head>
       <meta charset="UTF-8" />
       <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-      <title>TempoBW - Nastavení</title>
+      <title>)rawliteral" + strTitleSettings + R"rawliteral(</title>
       <style>
         body {
           background-color: #212f3c;
@@ -1222,12 +1315,12 @@ void handleSettings()
       </style>
       <script>
         function confirmReset() {
-          if (confirm("Opravdu smazat historii? Je to nevratný krok.")) {
+          if (confirm(")rawliteral" + strConfirmClearHistory + R"rawliteral(")) {
             document.getElementById("reset-history-form").submit();
           }
         }
         function confirmFactory() {
-          if (confirm("Opravdu provést tovární nastavení ?")) {
+          if (confirm(")rawliteral" + strConfirmFactory + R"rawliteral(")) {
             document.getElementById("factory-form").submit();
           }
         }
@@ -1235,35 +1328,32 @@ void handleSettings()
     </head>
     <body style="background-color: #212f3c">
       <div class="menu">
-        <button id="home" onclick="location.href='/'">Domů</button>
-        <button id="history" onclick="location.href='/history'">Historie</button>
-        <button id="settings" onclick="location.href='/settings'">Nastavení</button>
+        <button id="home" onclick="location.href='/'">)rawliteral" + strMenuHome + R"rawliteral(</button>
+        <button id="history" onclick="location.href='/history'">)rawliteral" + strMenuHistory + R"rawliteral(</button>
+        <button id="settings" onclick="location.href='/settings'">)rawliteral" + strMenuSettings + R"rawliteral(</button>
       </div>
       <div class="center">
         <form action="/apply-settings" method="POST">
-          <label for="time">Nastavit čas:</label>
+          <label for="time">)rawliteral" + strSetTime + R"rawliteral(</label>
           <input type="time" id="time" name="time" />
-          <label for="date">Nastavit datum:</label>
+          <label for="date">)rawliteral" + strSetDate + R"rawliteral(</label>
           <input type="date" id="date" name="date" />
-          <label for="altitude">Výška nad mořem (m):</label>
-          <input type="number" id="altitude" name="altitude" min="0" max="8848" step="1" placeholder="Zadejte výšku" />
-          <button type="submit">Uložit nastavení</button>
+          <label for="altitude">)rawliteral" + strSetAltitude + R"rawliteral(</label>
+          <input type="number" id="altitude" name="altitude" min="0" max="8848" step="1" placeholder=")rawliteral" + strEnterAltitude + R"rawliteral(" />
+          <button type="submit">)rawliteral" + strSaveSettings + R"rawliteral(</button>
         </form>
         <h2>Možnosti:</h2>
         <form id="reset-history-form" action="/reset-history" method="POST">
-          <button type="button" onclick="confirmReset()">Smazat historii</button>
+          <button type="button" onclick="confirmReset()">)rawliteral" + strClearHistory + R"rawliteral(</button>
         </form>
         <form action="/restart" method="POST">
-          <button type="submit">Restartovat zařízení</button>
+          <button type="submit">)rawliteral" + strRestart + R"rawliteral(</button>
         </form>
         <form id="factory-form" action="/factory" method="POST">
-          <button type="button" onclick="confirmFactory()">Tovární nastavení (smaže EPROM s historií i nastavením)</button>
+          <button type="button" onclick="confirmFactory()">)rawliteral" + strFactory + R"rawliteral(</button>
         </form>
       </div>
-      <div class="center">
-        <br>
-        <h5>&copy; PROGMaxi software 2025</h5>
-      </div>
+      <br>
     </body>
   </html>
   )rawliteral";
@@ -1340,11 +1430,11 @@ void handleApplySettings()
   String time = server.arg("time");
   String date = server.arg("date");
   String salt = server.arg("altitude");
-  Serial.print("Nastavit čas: ");
+  Serial.print("Setting time: ");
   Serial.println(time);
-  Serial.print("Nastavit datum: ");
+  Serial.print("Setting date: ");
   Serial.println(date);
-  Serial.print("Nastavit vysku v metrech: '");
+  Serial.print("Setting altitude (m): '");
   Serial.print(salt);
   Serial.println("'");
   setDeviceTime(time);
@@ -1357,7 +1447,7 @@ void handleApplySettings()
   <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TempoBW</title>
+    <title>)rawliteral" + strTitleIndex + R"rawliteral(</title>
     <style>
       body {
         background-color: #212f3c;
@@ -1412,7 +1502,7 @@ void handleApplySettings()
       <br>
     </div>
     <div class="center">
-      <p><span class="apos-label">POŽADAVEK ÚSPĚŠNĚ ODESLÁN</span></p>
+      <p><span class="apos-label">)rawliteral" + strRequestSuccess + R"rawliteral(</span></p>
       <br>
       <br>
       <br>
@@ -1425,19 +1515,33 @@ void handleApplySettings()
 
 
 void handleResetHistory() {
+
   Serial.println("Reset history!");
-    // Funkce pro smazání historie
   clearHistory();
   clearMinTemp();
   clearMaxTemp();
   writePosition(255);
+  EEData miTemp = readMinTemp();
+  EEData maTemp = readMaxTemp();
+  minTemp.temperature = miTemp.temperature;
+  minTemp.hour = miTemp.hour;
+  minTemp.minute = miTemp.minute;
+  minTemp.day = miTemp.day;
+  minTemp.month = miTemp.month;
+  minTemp.year = miTemp.year;
+  maxTemp.temperature = maTemp.temperature;
+  maxTemp.hour = maTemp.hour;
+  maxTemp.minute = maTemp.minute;
+  maxTemp.day = maTemp.day;
+  maxTemp.month = maTemp.month;
+  maxTemp.year = maTemp.year;
   String sendHtml = R"rawliteral(
   <!DOCTYPE html>
   <html lang="cs">
   <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TempoBW</title>
+    <title>)rawliteral" + strTitleIndex + R"rawliteral(</title>
     <style>
       body {
         background-color: #212f3c;
@@ -1485,9 +1589,9 @@ void handleResetHistory() {
       <br>
     </div>
     <div class="center">
-      <p><span class="apos-label">POŽADAVEK ÚSPĚŠNĚ ODESLÁN</span></p>
+      <p><span class="apos-label">)rawliteral" + strRequestSuccess + R"rawliteral(</span></p>
       <br>
-      <button class="button" id="redirectButton" onclick="window.location.href='http://192.168.4.1'">PŘEJÍT NA HLAVNÍ STRÁNKU</button>
+      <button class="button" id="redirectButton" onclick="window.location.href='http://192.168.4.1'">)rawliteral" + strGotoMainPage + R"rawliteral(</button>
       <br>
       <br>
       <br>
@@ -1555,11 +1659,10 @@ void handleRestart() {
       <br>
     </div>
     <div class="center">
-      <p><span class="apos-label">POŽADAVEK ÚSPĚŠNĚ ODESLÁN</span></p>
-      <p><span class="apos-label">ZNOVU SE PŘIPOJ K WIFI TEPLOMĚRU</span></p>
-      <p><span class="apos-label">A POUŽIJ TLAČÍTKO K NÁVRATU NA HLAVNÍ STRÁNKU</span></p>
+      <p><span class="apos-label">)rawliteral" + strRequestSuccess + R"rawliteral(</span></p>
+      <p><span class="apos-label">)rawliteral" + strReconnectToWifi + R"rawliteral(</span></p>
       <br>
-      <button class="button" id="redirectButton" onclick="window.location.href='http://192.168.4.1'">PŘEJÍT NA HLAVNÍ STRÁNKU</button>
+      <button class="button" id="redirectButton" onclick="window.location.href='http://192.168.4.1'">)rawliteral" + strGotoMainPage + R"rawliteral(</button>
       <br>
       <br>
       <br>
@@ -1583,7 +1686,7 @@ void handleFactory()
   <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TempoBW</title>
+    <title>)rawliteral" + strTitleIndex + R"rawliteral(</title>
     <style>
       body {
         background-color: #212f3c;
@@ -1631,11 +1734,10 @@ void handleFactory()
       <br>
     </div>
     <div class="center">
-      <p><span class="apos-label">POŽADAVEK ÚSPĚŠNĚ ODESLÁN</span></p>
-      <p><span class="apos-label">PO RESTARTU ZAŘÍZENÍ SE ZNOVU PŘIPOJ K WIFI TEPLOMĚRU</span></p>
-      <p><span class="apos-label">POUŽIJ TLAČÍTKO K NÁVRATU NA HLAVNÍ STRÁNKU</span></p>
+      <p><span class="apos-label">)rawliteral" + strRequestSuccess + R"rawliteral(</span></p>
+      <p><span class="apos-label">)rawliteral" + strReconnectToWifi + R"rawliteral(</span></p>
       <br>
-      <button class="button" id="redirectButton" onclick="window.location.href='http://192.168.4.1'">PŘEJÍT NA HLAVNÍ STRÁNKU</button>
+      <button class="button" id="redirectButton" onclick="window.location.href='http://192.168.4.1'">)rawliteral" + strGotoMainPage + R"rawliteral(</button>
       <br>
       <br>
       <br>
@@ -1679,7 +1781,6 @@ void sendHistory(uint8_t clientNum)
     webSocket.sendTXT(clientNum, jsonString);
 }
 
-
 void webSocketEvent(uint8_t client_num, WStype_t type, uint8_t *payload, size_t length) 
 {
   if (type == WStype_CONNECTED) 
@@ -1715,7 +1816,6 @@ void webSocketEvent(uint8_t client_num, WStype_t type, uint8_t *payload, size_t 
     }
   }
 }
-
 
 String formatTwoDigits(int value) 
 {
@@ -2256,21 +2356,21 @@ void loop()
       strData += " ";
       strData += (char)176;
       strData += "C";
-      ShowData("*- TEPLOTA -*", strData);
+      ShowData(strOLEDTemperature, strData);
       break;
     }
     case 1:
     {
       String strData = String(humidity, 1);
       strData += " %";
-      ShowData("VLHKOST", strData);
+      ShowData(strOLEDHumidity, strData);
       break;
     }
     case 2:
     {
       String strData = String(calculateSeaLevelPressure(pressure,altitude),2);
       strData += " hPa";
-      ShowData("ATM. TLAK", strData);
+      ShowData(strOLEDPressure, strData);
       break;
     }
     case 3:
@@ -2313,11 +2413,10 @@ void loop()
     }
     case 5:
     {
-      //DateTime now = rtc.now();
       String strData = (now.hour() < 10 ? "0" : "") + String(now.hour());
       strData += ":";
       strData += (now.minute() < 10 ? "0" : "") + String(now.minute());
-      ShowData("CAS ZARIZENI", strData);
+      ShowData(strOLEDBoardTime, strData);
       break;
     }
     case 6:
@@ -2327,7 +2426,7 @@ void loop()
       strData += (now.month() < 10 ? "0" : "") + String(now.month());
       strData += "/";
       strData += String(now.year()).substring(2);;
-      ShowData("DATUM ZARIZENI", strData);
+      ShowData(strOLEDBoardDate, strData);
       break;
     }
     case 7:
@@ -2336,7 +2435,7 @@ void loop()
       strData += " ";
       strData += (char)176;
       strData += "C";
-      ShowData("TEPLOTA ZARIZENI", strData);
+      ShowData(strOLEDBoardTemperature, strData);
       break;
     }
   }
