@@ -3,7 +3,7 @@
 // PROGMaxi software 2025
 
 // Go https://www.silabs.com/developer-tools/usb-to-uart-bridge-vcp-drivers?tab=downloads
-// Downalod "CP210x Universal Windows Driver" and install (right click "silabser.inf" and Install)
+// Download "CP210x Universal Windows Driver" and install (right click "silabser.inf" and Install)
 // Select board and port: Tools -> Board -> esp32 -> LOLIN D32 and port: Tools -> Port -> port number
 // Tools -> Partitions scheme -> No OTA (Large APP)
 // Add ESP32 boards:
@@ -34,6 +34,8 @@
 #define WIDTH 128
 #define HEIGHT 32
 
+
+// FOR CZECHIA
 String strTitleIndex = "TempoBW";
 String strTitleHistory = "TempoBW - Historie";
 String strTitleSettings = "TempoBW - Nastavení";
@@ -80,6 +82,7 @@ String strSetTime = "Nastavit čas:";
 String strSetDate = "Nastavit datum:";
 String strSetAltitude = "Nastavit výšku (m):";
 String strEnterAltitude = "Zadej výšku";
+String strOptions = "MOŽNOSTI";
 String strSaveSettings = "Uložit nastavení";
 String strClearHistory = "Smazat historii";
 String strRestart = "Restart zařízení";
@@ -87,6 +90,64 @@ String strFactory = "Tovární nastavení";
 String strRequestSuccess = "POŽADAVEK VYŘÍZEN!";
 String strGotoMainPage = "PŘEJÍT NA ÚVODNÍ STRÁNKU";
 String strReconnectToWifi = "ZNOVU SE PŘIPOJ K WIFI ZAŘÍZENÍ";
+
+/*
+// FOR ENGLISH
+String strTitleIndex = "TempoBW";
+String strTitleHistory = "TempoBW - History";
+String strTitleSettings = "TempoBW - Settings";
+String strOLEDTemperature = "* TEMPERATURE *";
+String strOLEDHumidity = "HUMIDITY";
+String strOLEDPressure = "PRESSURE";
+String strOLEDBoardTime = "BOARD TIME";
+String strOLEDBoardDate = "BOARD DATE";
+String strOLEDBoardTemperature = "BOARD TEMP";
+String strMenuHome = "Home";
+String strMenuHistory = "History";
+String strMenuSettings = "Settings";
+String strLoading = "Loading";
+String strCurrentTemperature = "Current temperature";
+String strPressure = "Pressure";
+String strHumidity = "Humidity";
+String strMinimal = "Minimal";
+String strMaximal = "Maximal";
+String strBoardTime = "Board time";
+String strBoardDate = "Board date";
+String strAltitude = "Altitude";
+String strBoardTemperature = "Board temperature";
+String strClientsCount = "Clients count";
+String strNoHistory = "NO HISTORY SO FAR";
+String strConnecting = "Connecting..";
+String strConnected = "Connected";
+String strDisconnecting = "Disconnecting..";
+String strDisconnected = "Disconnected";
+String strDisconnect = "Disconnect";
+String strRefresh = "REFRESH PAGE";
+String strConnectWebsocket = "Connect Websocket";
+String strDisconnectWebsocket = "Disconnect Websocket";
+String strWebsocketNoConnected = "Websocket not connected!";
+String strWebsocketStillConnected = "Websocket still connected!";
+String strLoadData = "Load data";
+String strTableDate = "Date";
+String strTableTime = "Time";
+String strTableTemperature = "Temperature";
+String strTableHumidity = "Humidity";
+String strTablePressure = "Pressure";
+String strConfirmClearHistory = "Really delete history?";
+String strConfirmFactory = "Really do a factory reset?";
+String strSetTime = "Set time:";
+String strSetDate = "Set date:";
+String strSetAltitude = "Set altitude (m):";
+String strEnterAltitude = "Enter altitude";
+String strOptions = "OPTIONS";
+String strSaveSettings = "Save settings";
+String strClearHistory = "Delete history";
+String strRestart = "Restart device";
+String strFactory = "Factory settings";
+String strRequestSuccess = "REQUEST PROCESSED!";
+String strGotoMainPage = "GO TO HOME PAGE";
+String strReconnectToWifi = "RECONNECT TO WIFI DEVICE";
+*/
 
 
 BluetoothSerial SerialBT;
@@ -733,15 +794,9 @@ void handleRoot()
       </body>
   </html>
   )rawliteral";
+  server.sendHeader("Connection", "close");
   server.send(200, "text/html", html);
-}
-
-void replaceString(String &html, String searchText, String replaceText) 
-{
-    int startIndex = html.indexOf(searchText);
-    if (startIndex != -1) {
-        html = html.substring(0, startIndex) + replaceText + html.substring(startIndex + searchText.length());
-    }
+  server.client().stop();
 }
 
 void handleHistory() 
@@ -859,7 +914,9 @@ void handleHistory()
     server.sendHeader("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
     server.sendHeader("Pragma", "no-cache");
     server.sendHeader("Expires", "0");
+    server.sendHeader("Connection", "close");
     server.send(200, "text/html", emptyHistoryHtml);    
+    server.client().stop();
   }
   else
   {
@@ -1081,11 +1138,13 @@ void handleHistory()
                         if (websocket && websocket.readyState === WebSocket.OPEN) {
                             websocket.onclose = () => {
                                 websocket = null;
+                                updateStatusDisplay();
                                 if (callback) callback();
                             };
                             websocket.close();
                         } else {
                             websocket = null;
+                            updateStatusDisplay();
                             if (callback) callback();
                         }
                     }
@@ -1167,32 +1226,52 @@ void handleHistory()
     </html>
     )rawliteral";
 
+    html.replace("{{strWebsocketStillConnected}}", strWebsocketStillConnected);
     //html.replace(html.find("{{strWebsocketStillConnected}}"), -1, strWebsocketStillConnected);
+    html.replace("{{strDisconnect}}", strDisconnect);
     //{{strDisconnect}}
+    html.replace("{{strConnectWebsocket}}", strConnectWebsocket);
     //{{strConnectWebsocket}}
+    html.replace("{{strWebsocketNoConnected}}", strWebsocketNoConnected);
     //{{strWebsocketNoConnected}}
+    html.replace("{{strDisconnected}}", strDisconnected);
     //{{strDisconnected}}
+    html.replace("{{strDisconnecting}}", strDisconnecting);
     //{{strDisconnecting}}
+    html.replace("{{strConnected}}", strConnected);
     //{{strConnected}}
+    html.replace("{{strConnecting}}", strConnecting);
     //{{strConnecting}}
+    html.replace("{{strTitleHistory}}", strTitleHistory);
     //{{strTitleHistory}}
+    html.replace("{{strTableDate}}", strTableDate);
     //{{strTableDate}}
+    html.replace("{{strTableTime}}", strTableTime);
     //{{strTableTime}}
+    html.replace("{{strTableTemperature}}", strTableTemperature);
     //{{strTableTemperature}}
+    html.replace("{{strTableHumidity}}", strTableHumidity);
     //{{strTableHumidity}}
+    html.replace("{{strTablePressure}}", strTablePressure);
     //{{strTablePressure}}
+    html.replace("{{strLoadData}}", strLoadData);
     //{{strLoadData}}
-    replaceString(html, "{{strMenuHome}}", strMenuHome);
+    html.replace("{{strMenuHome}}", strMenuHome);
+    // replaceString(html, "{{strMenuHome}}", strMenuHome);
     //{{strMenuHome}}
-    replaceString(html, "{{strMenuHistory}}", strMenuHistory);
+    html.replace("{{strMenuHistory}}", strMenuHistory);
+    // replaceString(html, "{{strMenuHistory}}", strMenuHistory);
     //{{strMenuHistory}}
-    replaceString(html, "{{strMenuSettings}}", strMenuSettings);
+    html.replace("{{strMenuSettings}}", strMenuSettings);
+    // replaceString(html, "{{strMenuSettings}}", strMenuSettings);
     //{{strMenuSettings}}
 
     server.sendHeader("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
     server.sendHeader("Pragma", "no-cache");
     server.sendHeader("Expires", "0");
+    server.sendHeader("Connection", "close");
     server.send(200, "text/html", html);
+    server.client().stop();
   }
 }
 
@@ -1342,7 +1421,7 @@ void handleSettings()
           <input type="number" id="altitude" name="altitude" min="0" max="8848" step="1" placeholder=")rawliteral" + strEnterAltitude + R"rawliteral(" />
           <button type="submit">)rawliteral" + strSaveSettings + R"rawliteral(</button>
         </form>
-        <h2>Možnosti:</h2>
+        <h2>)rawliteral" + strOptions + R"rawliteral(</h2>
         <form id="reset-history-form" action="/reset-history" method="POST">
           <button type="button" onclick="confirmReset()">)rawliteral" + strClearHistory + R"rawliteral(</button>
         </form>
@@ -1357,7 +1436,9 @@ void handleSettings()
     </body>
   </html>
   )rawliteral";
+  server.sendHeader("Connection", "close");
   server.send(200, "text/html", html);
+  server.client().stop();
 }
 
 bool setDeviceTime(String time) 
@@ -1672,6 +1753,7 @@ void handleRestart() {
   )rawliteral";
   server.send(200, "text/html", sendHtml);
   LittleFS.end();
+  delay(2000);
   esp_restart();
 }
 
@@ -2123,6 +2205,7 @@ void setup()
   WiFi.disconnect(true);
   Serial.print("Starting webserver...");
   WiFi.softAP(ssid, password);
+  WiFi.setSleep(false);
   int startWebServer = 0;
   while (!WiFi.status() == WL_CONNECTED) 
   {
