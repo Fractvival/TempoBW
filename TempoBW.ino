@@ -91,6 +91,9 @@ String strFactory = "Tovární nastavení";
 String strRequestSuccess = "POŽADAVEK VYŘÍZEN!";
 String strGotoMainPage = "PŘEJÍT NA ÚVODNÍ STRÁNKU";
 String strReconnectToWifi = "ZNOVU SE PŘIPOJ K WIFI ZAŘÍZENÍ";
+String strUseBluetooth = "Používat Bluetooth";
+String strBluetoothOn = "Zapnuto";
+String strBluetoothOff = "Vypnuto";
 
 /*
 // FOR ENGLISH
@@ -164,9 +167,18 @@ float deviceTemp = 0.0f;
 float altitude = 250.0f;
 int clientCount = 0;
 unsigned long previousMillis = 0;
-unsigned long interval = 5000;
+unsigned long interval = 5000;          // OLED page rotate interval
+unsigned long sensorInterval = 20000;    // sensor read interval (20 s)
+unsigned long lastSensorMillis = 0;
 unsigned int deltaDraw = 0;
+bool btEnabled = false;
+bool btRunning = false;
 Scheduler runner;
+
+// Forward declarations
+void callback_bluetooth(esp_spp_cb_event_t event, esp_spp_cb_param_t *param);
+void startBluetooth();
+void stopBluetooth();
 
 
 struct MMTemp 
@@ -411,6 +423,7 @@ void resetSettings()
     EESet eset = {0};
     eset.altitude = 250.0f;
     eset.position = 255;
+    eset.ui8set1 = 0;   // Bluetooth disabled by default
     eset.crc = 4444;
     writeSettings(eset);
     Serial.println("The settings have been reset.");
@@ -427,6 +440,45 @@ float readAltitude()
 {
     EESet eset = readSettings();
     return eset.altitude;
+}
+
+void writeBluetoothEnabled(bool enabled) 
+{
+    EESet eset = readSettings();
+    eset.ui8set1 = enabled ? 1 : 0;
+    writeSettings(eset);
+}
+
+bool readBluetoothEnabled() 
+{
+    EESet eset = readSettings();
+    return eset.ui8set1 != 0;
+}
+
+void startBluetooth() 
+{
+    if (btRunning) return;
+    Serial.print("Starting Bluetooth...");
+    if (SerialBT.begin("TempoBW", true, false)) 
+    {
+        SerialBT.register_callback(callback_bluetooth);
+        btRunning = true;
+        Serial.println("OK!");
+    } 
+    else 
+    {
+        Serial.println("FAIL!");
+        btRunning = false;
+    }
+}
+
+void stopBluetooth() 
+{
+    if (!btRunning) return;
+    Serial.println("Stopping Bluetooth...");
+    SerialBT.end();
+    btRunning = false;
+    Serial.println("Bluetooth stopped.");
 }
 
 void writePosition(int index) 
@@ -1378,6 +1430,17 @@ void handleSettings()
           text-align: center;
           font-size: 14px;
         }
+        input[type="checkbox"] {
+          width: auto;
+          transform: scale(1.4);
+          margin: 8px 10px;
+        }
+        .checkbox-row {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          margin: 12px 0;
+        }
         button {
           background-color: #4caf50;
           color: white;
@@ -1420,6 +1483,10 @@ void handleSettings()
           <input type="date" id="date" name="date" />
           <label for="altitude">)rawliteral" + strSetAltitude + R"rawliteral(</label>
           <input type="number" id="altitude" name="altitude" min="0" max="8848" step="1" placeholder=")rawliteral" + strEnterAltitude + R"rawliteral(" />
+          <div class="checkbox-row">
+            <input type="checkbox" id="bluetooth" name="bluetooth" value="1" )rawliteral" + String(btEnabled ? "checked" : "") + R"rawliteral( />
+            <label for="bluetooth">)rawliteral" + strUseBluetooth + R"rawliteral(</label>
+          </div>
           <button type="submit">)rawliteral" + strSaveSettings + R"rawliteral(</button>
         </form>
         <h2>)rawliteral" + strOptions + R"rawliteral(</h2>
@@ -1512,6 +1579,7 @@ void handleApplySettings()
   String time = server.arg("time");
   String date = server.arg("date");
   String salt = server.arg("altitude");
+  bool newBt = server.hasArg("bluetooth");
   Serial.print("Setting time: ");
   Serial.println(time);
   Serial.print("Setting date: ");
@@ -1519,10 +1587,26 @@ void handleApplySettings()
   Serial.print("Setting altitude (m): '");
   Serial.print(salt);
   Serial.println("'");
+  Serial.print("Setting Bluetooth: ");
+  Serial.println(newBt ? "ON" : "OFF");
   setDeviceTime(time);
   setDeviceDate(date);
-  writeAltitude(parseAltitude(salt));
-  altitude = parseAltitude(salt);
+  float parsedAlt = parseAltitude(salt);
+  if (!isnan(parsedAlt)) 
+  {
+    writeAltitude(parsedAlt);
+    altitude = parsedAlt;
+  }
+  writeBluetoothEnabled(newBt);
+  btEnabled = newBt;
+  if (btEnabled && !btRunning) 
+  {
+    startBluetooth();
+  } 
+  else if (!btEnabled && btRunning) 
+  {
+    stopBluetooth();
+  }
   String sendHtml = R"rawliteral(
   <!DOCTYPE html>
   <html lang="cs">
@@ -1982,6 +2066,7 @@ void callback_bluetooth(esp_spp_cb_event_t event, esp_spp_cb_param_t *param)
         SerialBT.println("13 = Clear history");
         SerialBT.println("14 = Factory settings");
         SerialBT.println("");
+        break;
       }
       case 1:
       {
@@ -2011,7 +2096,7 @@ void callback_bluetooth(esp_spp_cb_event_t event, esp_spp_cb_param_t *param)
           formatTwoDigits(maxTemp.minute) + " " +
           formatTwoDigits(maxTemp.day) +
           formatTwoDigits(maxTemp.month) +
-          String(minTemp.year)
+          String(maxTemp.year)
         );          
         break;
       }
@@ -2169,14 +2254,19 @@ void callback_bluetooth(esp_spp_cb_event_t event, esp_spp_cb_param_t *param)
 
 void setup() 
 {
+  setCpuFrequencyMhz(80);   // lower CPU clock to save a bit of power
   Serial.begin(9600);
   delay(600);
   Serial.println("\nTempoBW, welcome!\n");
+  Serial.print("CPU frequency: ");
+  Serial.print(getCpuFrequencyMhz());
+  Serial.println(" MHz");
   delay(200);
   if ( oled.begin() )
   {
     oled.clearBuffer();
     oled.clearDisplay();
+    oled.setContrast(128);  // slightly reduced contrast (0-255)
     oled.sendBuffer();
     Serial.println("Display init OK!");
   }
@@ -2186,23 +2276,96 @@ void setup()
   }
   delay(50);
   ShowIntro("TempoBW");
-  Serial.print("Starting bluetooth...");
-  int connectBluetoothDelta = 0;
-  while(!SerialBT.begin("TempoBW", true, false))
+
+  // LittleFS first – needed for Bluetooth setting
+  Serial.println("Startup LittleFS");
+  if (!LittleFS.begin(true))
   {
-    Serial.print(".");
-    delay(100);
-    connectBluetoothDelta++;
-    if (connectBluetoothDelta > 100)
+    if (!LittleFS.format())
     {
       Serial.println("FAIL!");
       Serial.println("Restart ESP is in proccessing...");
       delay(5000);
       esp_restart();
     }
+    else
+    {
+      Serial.println("LittleFS formatted successfully!");
+    }
   }
-  SerialBT.register_callback(callback_bluetooth);
-  Serial.println("OK!");
+
+  {
+    EESet eset = readSettings();
+    if (eset.crc != 4444)
+    {
+      resetSettings();
+      clearHistory();
+      clearMinTemp();
+      clearMaxTemp();
+      altitude = 250.0f;
+      btEnabled = false;
+      Serial.println("NEW LittleFS settings init!");
+      Serial.print("Altitude set to default: ");
+      Serial.println(altitude);
+    }
+    else
+    {
+      Serial.println("LittleFS init OK!");
+      if (isnan(eset.altitude))
+      {
+        altitude = 250.0f;
+        writeAltitude(altitude);
+        Serial.println("Incorrect altitude!");
+        Serial.print("Altitude set to default: ");
+        Serial.println(altitude);
+      }
+      else
+      {
+        altitude = eset.altitude;
+        Serial.print("Altitude: ");
+        Serial.println(altitude);
+      }
+      btEnabled = (eset.ui8set1 != 0);
+    }
+    eset = readSettings();
+    Serial.print("Current position: ");
+    Serial.println(eset.position);
+    Serial.print("Bluetooth enabled: ");
+    Serial.println(btEnabled ? "YES" : "NO");
+
+    EEData miTemp = readMinTemp();
+    EEData maTemp = readMaxTemp();
+
+    minTemp.temperature = miTemp.temperature;
+    minTemp.hour = miTemp.hour;
+    minTemp.minute = miTemp.minute;
+    minTemp.day = miTemp.day;
+    minTemp.month = miTemp.month;
+    minTemp.year = miTemp.year;
+    Serial.println("Minimal temperature loaded");
+
+    maxTemp.temperature = maTemp.temperature;
+    maxTemp.hour = maTemp.hour;
+    maxTemp.minute = maTemp.minute;
+    maxTemp.day = maTemp.day;
+    maxTemp.month = maTemp.month;
+    maxTemp.year = maTemp.year;
+    Serial.println("Maximal temperature loaded");
+
+    measureTemp.enableDelayed(360000);
+    Serial.println("Writter for LittleFS starting [6min] !");
+  }
+
+  // Bluetooth only if enabled in settings
+  if (btEnabled)
+  {
+    startBluetooth();
+  }
+  else
+  {
+    Serial.println("Bluetooth is disabled (enable in Settings if needed).");
+  }
+
   WiFi.disconnect(true);
   Serial.print("Starting webserver...");
   WiFi.softAP(ssid, password);
@@ -2239,79 +2402,7 @@ void setup()
   Serial.println("WIFI websocket started");
   Wire.begin(SDA, SCL);
   Serial.println("Wire init OK");
-  Serial.println("Startup LittleFS");
-  if (!LittleFS.begin(true))
-  {
-    if (!LittleFS.format())
-    {
-      Serial.println("FAIL!");
-      Serial.println("Restart ESP is in proccessing...");
-      delay(5000);
-      esp_restart();
-    }
-    else
-    {
-      Serial.println("LittleFS formatted successfully!");
-    }
-  }
-  else
-  {
-    EESet eset = readSettings();
-    if (eset.crc != 4444)
-    {
-      resetSettings();
-      clearHistory();
-      clearMinTemp();
-      clearMaxTemp();
-      altitude = 250.0f;
-      Serial.println("NEW LittleFS settings init!");
-      Serial.print("Altitude set to default: ");
-      Serial.println(altitude);
-    }
-    else
-    {
-      Serial.println("LittleFS init OK!");
-      if (isnan(eset.altitude))
-      {
-        altitude = 250.0f;
-        writeAltitude(altitude);
-        Serial.println("Incorrect altitude!");
-        Serial.print("Altitude set to default: ");
-        Serial.println(altitude);
-      }
-      else
-      {
-        altitude = eset.altitude;
-        Serial.print("Altitude: ");
-        Serial.println(altitude);
-      }
-    }
-    eset = readSettings();
-    Serial.print("Current position: ");
-    Serial.println(eset.position);
 
-    EEData miTemp = readMinTemp();
-    EEData maTemp = readMaxTemp();
-
-    minTemp.temperature = miTemp.temperature;
-    minTemp.hour = miTemp.hour;
-    minTemp.minute = miTemp.minute;
-    minTemp.day = miTemp.day;
-    minTemp.month = miTemp.month;
-    minTemp.year = miTemp.year;
-    Serial.println("Minimal temperature loaded");
-
-    maxTemp.temperature = maTemp.temperature;
-    maxTemp.hour = maTemp.hour;
-    maxTemp.minute = maTemp.minute;
-    maxTemp.day = maTemp.day;
-    maxTemp.month = maTemp.month;
-    maxTemp.year = maTemp.year;
-    Serial.println("Maximal temperature loaded");
-
-    measureTemp.enableDelayed(360000);
-    Serial.println("Writter for LittleFS starting [6min] !");
-  }
   if (!rtc.begin()) 
   {
     Serial.println("RTC not found!");
@@ -2338,52 +2429,61 @@ void setup()
   }
   else
   {
-    sht.setPrecision(SHT4X_HIGH_PRECISION);
-    Serial.println("SHT41 init OK!");
+    sht.setPrecision(SHT4X_MED_PRECISION);  // medium instead of high – less power
+    Serial.println("SHT41 init OK! (medium precision)");
   }
   dallas.begin();
-  dallas.setResolution(12);
+  dallas.setResolution(10);  // 10-bit instead of 12 – faster & less power
   dallas.requestTemperatures();
-  Serial.println("DALLAS sensor init OK!");
+  Serial.println("DALLAS sensor init OK! (10-bit)");
+  lastSensorMillis = millis();
   Serial.println("TempoBW run!!");
 }
 
 
 void loop() 
 {
-  dallas.requestTemperatures();
-  while (!dallas.isConversionComplete()) 
-  {
-    delay(100);
-  }
-  temperature = dallas.getTempCByIndex(0);
-  deviceTemp = rtc.getTemperature();
-  sensors_event_t se_humidity, se_temp;
-  sht.getEvent(&se_humidity, &se_temp);
-  humidity = se_humidity.relative_humidity;
-  pressure = bme.readPressure();
+  unsigned long currentMillis = millis();
 
-  if (minTemp.temperature > temperature)
+  // Read sensors only every sensorInterval (default 20 s)
+  if (currentMillis - lastSensorMillis >= sensorInterval) 
   {
-    DateTime now = rtc.now();
-    minTemp.temperature = temperature;
-    minTemp.hour = now.hour();
-    minTemp.minute = now.minute();
-    minTemp.second = now.second();
-    minTemp.day = now.day();
-    minTemp.month = now.month();
-    minTemp.year = now.year();
-  }
-  if (maxTemp.temperature < temperature)
-  {
-    DateTime now = rtc.now();
-    maxTemp.temperature = temperature;
-    maxTemp.hour = now.hour();
-    maxTemp.minute = now.minute();
-    maxTemp.second = now.second();
-    maxTemp.day = now.day();
-    maxTemp.month = now.month();
-    maxTemp.year = now.year();
+    lastSensorMillis = currentMillis;
+
+    dallas.requestTemperatures();
+    while (!dallas.isConversionComplete()) 
+    {
+      delay(50);
+    }
+    temperature = dallas.getTempCByIndex(0);
+    deviceTemp = rtc.getTemperature();
+    sensors_event_t se_humidity, se_temp;
+    sht.getEvent(&se_humidity, &se_temp);
+    humidity = se_humidity.relative_humidity;
+    pressure = bme.readPressure();
+
+    if (minTemp.temperature > temperature)
+    {
+      DateTime now = rtc.now();
+      minTemp.temperature = temperature;
+      minTemp.hour = now.hour();
+      minTemp.minute = now.minute();
+      minTemp.second = now.second();
+      minTemp.day = now.day();
+      minTemp.month = now.month();
+      minTemp.year = now.year();
+    }
+    if (maxTemp.temperature < temperature)
+    {
+      DateTime now = rtc.now();
+      maxTemp.temperature = temperature;
+      maxTemp.hour = now.hour();
+      maxTemp.minute = now.minute();
+      maxTemp.second = now.second();
+      maxTemp.day = now.day();
+      maxTemp.month = now.month();
+      maxTemp.year = now.year();
+    }
   }
 
   DateTime now = rtc.now();
@@ -2395,7 +2495,7 @@ void loop()
 
   DynamicJsonDocument json(512);
   json["temperature"] = String(temperature, 1);
-  json["pressure"] = String(calculateSeaLevelPressure(pressure,altitude),2); //String(pressure, 1);
+  json["pressure"] = String(calculateSeaLevelPressure(pressure,altitude),2);
   json["humidity"] = String(humidity, 1);
   json["devTemp"] = String(deviceTemp, 1);
   json["altitude"] = String(altitude,0);
@@ -2423,7 +2523,6 @@ void loop()
   server.handleClient();
   webSocket.loop();
   
-  unsigned long currentMillis = millis();
   if (currentMillis - previousMillis >= interval) 
   {
     previousMillis = currentMillis;
@@ -2525,8 +2624,5 @@ void loop()
   }
 
   runner.execute();
+  delay(20);  // reduce CPU spinning a bit
 }
-
-
-
-
