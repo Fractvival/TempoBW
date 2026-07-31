@@ -24,6 +24,7 @@
 #include <WebServer.h>
 #include <WebSocketsServer.h>     // download library https://github.com/Links2004/arduinoWebSockets/tree/master, Sketch -> Inlude library -> Add .ZIP Library file
 #include <ArduinoJson.h>          // download library https://github.com/bblanchon/ArduinoJson, Sketch -> Inlude library -> Add .ZIP Library file
+#include <Adafruit_Sensor.h>      // download library https://github.com/adafruit/Adafruit_Sensor, Sketch -> Inlude library -> Add .ZIP Library file
 #include <Adafruit_BME280.h>      // Adafruit BME280 Library by Adafruit (https://github.com/adafruit/Adafruit_BME280_Library)
 #include <Adafruit_SHT4x.h>       // Adafruit SHT4x Library by Adafruit (https://github.com/adafruit/Adafruit_SHT4x)
 #include "BluetoothSerial.h"
